@@ -2,10 +2,10 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 /**
- * 全局中间件：对 /api/* 路径进行 Token 认证
+ * 全局代理：对 /api/* 路径进行 Token 认证
  * 排除 /api/auth/check（无需认证，用于前端验证Token）
  */
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // 仅拦截 API 路由

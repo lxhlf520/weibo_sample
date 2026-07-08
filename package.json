@@ -10,7 +10,8 @@
     "scheduler": "tsx src/jobs/scheduler.ts",
     "job:collect": "tsx src/jobs/collector.ts",
     "job:comment": "tsx src/jobs/commenter.ts",
-    "job:monitor": "tsx src/jobs/monitor.ts"
+    "job:monitor": "tsx src/jobs/monitor.ts",
+    "test-entry": "tsx src/jobs/test-entry.ts"
   },
   "dependencies": {
     "mongodb": "^6.15.0",
@@ -30,6 +31,7 @@
     "eslint-config-next": "16.2.9",
     "pg": "^8.22.0",
     "tailwindcss": "^4",
+    "tsx": "^4",
     "typescript": "^5"
   }
 }
