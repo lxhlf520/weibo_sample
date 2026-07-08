@@ -1,4 +1,23 @@
 import { MongoClient, Db, Collection, Document, Filter, OptionalUnlessRequiredId, WithId, ObjectId, Sort } from 'mongodb';
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
+
+// 加载 .env.local（Next.js 自动加载，但独立 tsx 脚本需要手动）
+(function loadEnvLocal() {
+  try {
+    const content = readFileSync(resolve(process.cwd(), '.env.local'), 'utf-8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq > 0) {
+        const key = trimmed.substring(0, eq).trim();
+        const val = trimmed.substring(eq + 1).trim();
+        if (!process.env[key]) process.env[key] = val;
+      }
+    }
+  } catch { /* .env.local 不存在则跳过 */ }
+})();
 
 let client: MongoClient | null = null;
 let _db: Db | null = null;
