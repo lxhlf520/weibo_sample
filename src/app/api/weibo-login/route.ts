@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
           if (userInfo) {
             const existing = await maybeOne(
               'accounts',
-              { user_id: auth.id, weibo_uid: userInfo.uid },
+              { weibo_uid: userInfo.uid },
             );
             if (existing) {
               await updateOne(
@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
               );
             } else {
               await insert('accounts', {
-                user_id: auth.id, cookie: finalCookies, weibo_uid: userInfo.uid,
+                cookie: finalCookies, weibo_uid: userInfo.uid,
                 nickname: userInfo.nickname, avatar: userInfo.avatar, status: 'active',
               });
             }
@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
           );
         } else {
           await insert('accounts', {
-            user_id: auth.id, cookie, weibo_uid: userInfo.uid,
+            cookie, weibo_uid: userInfo.uid,
             nickname: userInfo.nickname, avatar: userInfo.avatar, status: 'active',
           });
         }

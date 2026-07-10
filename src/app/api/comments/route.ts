@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 
       const account = await maybeOne<WbAccount>(
         'accounts',
-        { id: accountId, user_id: auth.id },
+        { id: accountId },
       );
       if (!account) return NextResponse.json({ error: '账号不存在' }, { status: 404 });
       if (account.daily_comment_count >= account.max_daily_comments)
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
       const { rows: accounts } = await query<WbAccount>(
         'accounts',
-        { user_id: auth.id, status: 'active' },
+        { status: 'active' },
       );
       if (accounts.length === 0) return NextResponse.json({ error: '没有可用账号' }, { status: 400 });
 

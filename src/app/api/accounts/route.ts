@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   try {
     const { rows } = await query(
       'accounts',
-      { user_id: auth.id },
+      {},
       { sort: { created_at: -1 } },
     );
     return NextResponse.json({ accounts: rows });
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     if (weibo_uid) {
       const existing = await maybeOne(
         'accounts',
-        { user_id: auth.id, weibo_uid },
+        { weibo_uid },
       );
       if (existing) {
         const account = await updateOne(
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     }
 
     account = await insert('accounts', {
-      user_id: auth.id, cookie, weibo_uid: weibo_uid || null,
+      cookie, weibo_uid: weibo_uid || null,
       nickname: nickname || null, avatar: avatar || null, status: 'active',
       daily_comment_count: 0, max_daily_comments: 100,
     });
@@ -61,7 +61,7 @@ export async function DELETE(request: NextRequest) {
   try {
     const { id } = await request.json();
     if (!id) return NextResponse.json({ error: '缺少账号ID' }, { status: 400 });
-    await deleteMany('accounts', { id, user_id: auth.id });
+    await deleteMany('accounts', { id });
     return NextResponse.json({ success: true });
   } catch (err) {
     return NextResponse.json({ error: `删除账号失败: ${err}` }, { status: 500 });
@@ -86,7 +86,7 @@ export async function PATCH(request: NextRequest) {
 
     const account = await updateOne(
       'accounts',
-      { id, user_id: auth.id },
+      { id },
       sets,
     );
     return NextResponse.json({ success: true, account });
