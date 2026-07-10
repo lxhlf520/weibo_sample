@@ -50,17 +50,17 @@ export async function POST(request: NextRequest) {
 
           if (userInfo) {
             const existing = await maybeOne(
-              'weibo_accounts',
+              'accounts',
               { user_id: auth.id, weibo_uid: userInfo.uid },
             );
             if (existing) {
               await updateOne(
-                'weibo_accounts',
+                'accounts',
                 { id: existing.id },
                 { cookie: finalCookies, nickname: userInfo.nickname, avatar: userInfo.avatar, status: 'active', updated_at: new Date().toISOString() },
               );
             } else {
-              await insert('weibo_accounts', {
+              await insert('accounts', {
                 user_id: auth.id, cookie: finalCookies, weibo_uid: userInfo.uid,
                 nickname: userInfo.nickname, avatar: userInfo.avatar, status: 'active',
               });
@@ -79,17 +79,17 @@ export async function POST(request: NextRequest) {
         if (!userInfo) return NextResponse.json({ error: 'Cookie无效' }, { status: 400 });
 
         const existing = await maybeOne(
-          'weibo_accounts',
+          'accounts',
           { user_id: auth.id, weibo_uid: userInfo.uid },
         );
         if (existing) {
           await updateOne(
-            'weibo_accounts',
+            'accounts',
             { id: existing.id },
             { cookie, nickname: userInfo.nickname, avatar: userInfo.avatar, status: 'active', updated_at: new Date().toISOString() },
           );
         } else {
-          await insert('weibo_accounts', {
+          await insert('accounts', {
             user_id: auth.id, cookie, weibo_uid: userInfo.uid,
             nickname: userInfo.nickname, avatar: userInfo.avatar, status: 'active',
           });

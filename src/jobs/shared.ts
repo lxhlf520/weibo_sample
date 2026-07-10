@@ -292,13 +292,13 @@ import { query } from '../lib/db';
 
 /** 读取所有 active 账号 */
 export async function getActiveAccounts(): Promise<Account[]> {
-  const { rows } = await query<Account>('weibo_accounts', { status: 'active' });
+  const { rows } = await query<Account>('accounts', { status: 'active' });
   return rows;
 }
 
 /** 读取可评论账号：status=active 且 未被标记禁评（can_comment !== false） */
 export async function getCommentableAccounts(): Promise<Account[]> {
-  const { rows } = await query<Account>('weibo_accounts', {
+  const { rows } = await query<Account>('accounts', {
     status: 'active',
     can_comment: { $ne: false },
   });

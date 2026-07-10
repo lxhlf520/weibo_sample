@@ -22,6 +22,11 @@ import { resolve } from 'path';
 let client: MongoClient | null = null;
 let _db: Db | null = null;
 
+/** 集合名前缀，区分微博与 Twitter 平台 */
+const PREFIX = 'weibo_';
+function cn(name: string): string { return PREFIX + name; }
+export { cn };
+
 function getUri(): string {
   return process.env.MONGO_URI || 'mongodb://root:IS%23514_ca@localhost:27017/';
 }
@@ -89,7 +94,7 @@ export async function query<T = Record<string, unknown>>(
   filter: Filter<Document> = {},
   opts?: { sort?: Sort; limit?: number },
 ): Promise<{ rows: T[]; rowCount: number }> {
-  const coll = (await getDb()).collection(collection);
+  const coll = (await getDb()).collection(cn(collection));
   const normalized = normalizeFilter(filter);
   let cursor = coll.find(normalized);
   if (opts?.sort) cursor = cursor.sort(opts.sort);
@@ -107,7 +112,7 @@ export async function maybeOne<T = Record<string, unknown>>(
   collection: string,
   filter: Filter<Document> = {},
 ): Promise<T | null> {
-  const coll = (await getDb()).collection(collection);
+  const coll = (await getDb()).collection(cn(collection));
   const doc = await coll.findOne(normalizeFilter(filter));
   return formatDoc<T>(doc);
 }
@@ -121,7 +126,7 @@ export async function insert<T = Record<string, unknown>>(
   collection: string,
   data: Record<string, unknown>,
 ): Promise<T | null> {
-  const coll = (await getDb()).collection(collection);
+  const coll = (await getDb()).collection(cn(collection));
   const result = await coll.insertOne(data as OptionalUnlessRequiredId<Document>);
   const doc = await coll.findOne({ _id: result.insertedId });
   return formatDoc<T>(doc);
@@ -138,7 +143,7 @@ export async function updateOne<T = Record<string, unknown>>(
   filter: Filter<Document>,
   update: Record<string, unknown>,
 ): Promise<T | null> {
-  const coll = (await getDb()).collection(collection);
+  const coll = (await getDb()).collection(cn(collection));
   const normalized = normalizeFilter(filter);
   const result = await coll.findOneAndUpdate(
     normalized,
@@ -159,7 +164,7 @@ export async function updateMany(
   filter: Filter<Document>,
   update: Record<string, unknown>,
 ): Promise<{ rowCount: number }> {
-  const coll = (await getDb()).collection(collection);
+  const coll = (await getDb()).collection(cn(collection));
   const normalized = normalizeFilter(filter);
   const result = await coll.updateMany(normalized, { $set: update });
   return { rowCount: result.modifiedCount };
@@ -172,7 +177,7 @@ export async function deleteOne(
   collection: string,
   filter: Filter<Document>,
 ): Promise<{ deleted: boolean }> {
-  const coll = (await getDb()).collection(collection);
+  const coll = (await getDb()).collection(cn(collection));
   const result = await coll.deleteOne(normalizeFilter(filter));
   return { deleted: result.deletedCount > 0 };
 }
@@ -184,7 +189,7 @@ export async function deleteMany(
   collection: string,
   filter: Filter<Document>,
 ): Promise<{ rowCount: number }> {
-  const coll = (await getDb()).collection(collection);
+  const coll = (await getDb()).collection(cn(collection));
   const result = await coll.deleteMany(normalizeFilter(filter));
   return { rowCount: result.deletedCount };
 }
@@ -196,20 +201,20 @@ export async function count(
   collection: string,
   filter: Filter<Document> = {},
 ): Promise<number> {
-  const coll = (await getDb()).collection(collection);
+  const coll = (await getDb()).collection(cn(collection));
   return coll.countDocuments(normalizeFilter(filter));
 }
 
 /**
  * 原子递增字段（如 daily_comment_count + 1）
- * 用法: inc('weibo_accounts', { id: 'xxx' }, { daily_comment_count: 1 })
+ * 用法: inc('accounts', { id: 'xxx' }, { daily_comment_count: 1 })
  */
 export async function inc(
   collection: string,
   filter: Filter<Document>,
   increments: Record<string, number>,
 ): Promise<void> {
-  const coll = (await getDb()).collection(collection);
+  const coll = (await getDb()).collection(cn(collection));
   await coll.updateOne(normalizeFilter(filter), { $inc: increments });
 }
 
@@ -224,7 +229,7 @@ export async function upsert<T = Record<string, unknown>>(
   filter: Filter<Document>,
   data: Record<string, unknown>,
 ): Promise<T | null> {
-  const coll = (await getDb()).collection(collection);
+  const coll = (await getDb()).collection(cn(collection));
   const result = await coll.findOneAndUpdate(
     normalizeFilter(filter),
     { $set: data, $setOnInsert: { created_at: new Date().toISOString() } },

@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: '缺少参数' }, { status: 400 });
 
       const account = await maybeOne<WbAccount>(
-        'weibo_accounts',
+        'accounts',
         { id: accountId, user_id: auth.id },
       );
       if (!account) return NextResponse.json({ error: '账号不存在' }, { status: 404 });
@@ -29,9 +29,9 @@ export async function POST(request: NextRequest) {
 
       const result = await postComment(account.cookie, postId, content);
 
-      await inc('weibo_accounts', { id: accountId }, { daily_comment_count: 1 });
+      await inc('accounts', { id: accountId }, { daily_comment_count: 1 });
       await updateOne(
-        'weibo_accounts',
+        'accounts',
         { id: accountId },
         { last_used_at: new Date().toISOString(), status: result.success ? 'active' : 'error' },
       );
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
       if (logs.length === 0) return NextResponse.json({ error: '没有待发送的评论' }, { status: 400 });
 
       const { rows: accounts } = await query<WbAccount>(
-        'weibo_accounts',
+        'accounts',
         { user_id: auth.id, status: 'active' },
       );
       if (accounts.length === 0) return NextResponse.json({ error: '没有可用账号' }, { status: 400 });
@@ -90,8 +90,8 @@ export async function POST(request: NextRequest) {
           },
         );
 
-        await inc('weibo_accounts', { id: acc.id }, { daily_comment_count: 1 });
-        await updateOne('weibo_accounts', { id: acc.id }, { last_used_at: new Date().toISOString() });
+        await inc('accounts', { id: acc.id }, { daily_comment_count: 1 });
+        await updateOne('accounts', { id: acc.id }, { last_used_at: new Date().toISOString() });
         acc.daily_comment_count++;
         results.push({ logId: log.id, success: result.success, error: result.error });
         await new Promise(r => setTimeout(r, 5000 + Math.random() * 10000));

@@ -32,7 +32,7 @@ async function main() {
   // ── 动态导入（确保 env 已设置）──────────────────────────
   const { getActiveAccounts } = await import('./shared');
   const { query } = await import('../lib/db');
-  const { getDb } = await import('../lib/db');
+  const { getDb, cn } = await import('../lib/db');
 
   // 清理当天旧实验（支持重复跑测试）
   const today = new Date().toISOString().split('T')[0];
@@ -41,11 +41,11 @@ async function main() {
     const oldIds = oldExps.map((e) => e.id);
     const { ObjectId } = await import('mongodb');
     const database = await getDb();
-    await database.collection('experiment_runs').deleteMany({ _id: { $in: oldIds.map((id) => new ObjectId(id)) } });
-    await database.collection('candidate_pool').deleteMany({ experiment_id: { $in: oldIds } });
-    await database.collection('posts').deleteMany({ experiment_id: { $in: oldIds } });
-    await database.collection('intervention_logs').deleteMany({ experiment_id: { $in: oldIds } });
-    await database.collection('post_snapshots').deleteMany({ experiment_id: { $in: oldIds } });
+    await database.collection(cn('experiment_runs')).deleteMany({ _id: { $in: oldIds.map((id) => new ObjectId(id)) } });
+    await database.collection(cn('candidate_pool')).deleteMany({ experiment_id: { $in: oldIds } });
+    await database.collection(cn('posts')).deleteMany({ experiment_id: { $in: oldIds } });
+    await database.collection(cn('intervention_logs')).deleteMany({ experiment_id: { $in: oldIds } });
+    await database.collection(cn('post_snapshots')).deleteMany({ experiment_id: { $in: oldIds } });
     console.log(`  已清理 ${oldIds.length} 个当天旧实验`);
   }
 

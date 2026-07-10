@@ -7,7 +7,7 @@
  *   2. 用该账号对自己微博发一条中性测试评论
  *   3. 成功 → can_comment=true，并立即删除该测试评论（近乎无痕）
  *      失败(重试1次仍失败) → can_comment=false + 记录原因
- *   4. 结果写回 weibo_accounts（can_comment / comment_checked_at / comment_ban_reason）
+ *   4. 结果写回 accounts（can_comment / comment_checked_at / comment_ban_reason）
  * 采集(collector)仍用全部 active 账号；评论(commenter)只用 can_comment 账号。
  *
  * 直跑调试：npx tsx src/jobs/checker.ts
@@ -72,7 +72,7 @@ export async function runCommentPermissionCheck(): Promise<{ checked: number; ba
   let banned = 0;
   for (const acc of accounts) {
     const { canComment, reason } = await probeAccount(acc);
-    await updateOne('weibo_accounts', { id: acc.id }, {
+    await updateOne('accounts', { id: acc.id }, {
       can_comment: canComment,
       comment_checked_at: now(),
       comment_ban_reason: canComment ? null : reason,
