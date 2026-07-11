@@ -3,8 +3,8 @@
  * ============================================================================
  * 1. 找当天 status=ready 实验；对其全部 200 帖采 t0 基线（干预前），记录 t0_at
  * 2. 15 账号轮询发送 60 条评论（low30+high30）
- *    - 双账号重试：primary 失败换 fallback
- *    - 备选回补：仍失败则从 is_spare 池取新帖回补重试（成功 failed--）
+ *    - 全账号遍历：从当前轮询位开始，逐个尝试所有可评论账号直到成功
+ *    - 备选回补：仍失败则从 is_spare 池取新帖，同样全账号遍历重试
  * 3. 更新实验 status=running
  *
  * 直跑调试：npx tsx src/jobs/commenter.ts [experimentId]
@@ -40,6 +40,32 @@ interface LogRow {
   comment_template: string | null;
   comment_content: string;
   status: string;
+}
+
+/**
+ * 遍历全部可评论账号发送评论，直到成功或用尽所有账号。
+ * @returns { ok, cid, err, usedIdx } 其中 usedIdx 是成功时消耗的最后一个账号位
+ */
+async function tryAllAccounts(
+  postId: string,
+  content: string,
+  accounts: Account[],
+  startIdx: number,
+): Promise<{ ok: boolean; cid?: string; err?: string; usedIdx: number }> {
+  let lastErr = '';
+  for (let attempt = 0; attempt < accounts.length; attempt++) {
+    const acc = accounts[(startIdx + attempt) % accounts.length];
+    if (attempt > 0) {
+      console.log(`    ⚠️ 失败(${lastErr})，换 @${acc.nickname} 重试 (${attempt + 1}/${accounts.length})`);
+      await sleep(2000 + Math.random() * 3000);
+    }
+    const r = await sendOneComment(postId, content, acc.cookie);
+    if (r.ok) {
+      return { ok: true, cid: r.cid, usedIdx: (startIdx + attempt) % accounts.length };
+    }
+    lastErr = r.err || 'unknown';
+  }
+  return { ok: false, err: lastErr, usedIdx: startIdx };
 }
 
 /** 采集单实验全部帖子的 t0 基线快照 */
@@ -135,19 +161,9 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
       continue;
     }
 
-    const primary = commentAccounts[ai % commentAccounts.length];
-    const fallback = commentAccounts[(ai + 1) % commentAccounts.length];
-    ai++;
-
-    console.log(`[${i + 1}/${logs.length}] ${post.post_id} [${log.post_group}] @${primary.nickname}`);
-    let r = await sendOneComment(post.post_id, log.comment_content, primary.cookie);
-
-    // 双账号重试
-    if (!r.ok) {
-      console.log(`    ⚠️ 失败(${r.err})，换 @${fallback.nickname} 重试`);
-      await sleep(2000 + Math.random() * 3000);
-      r = await sendOneComment(post.post_id, log.comment_content, fallback.cookie);
-    }
+    console.log(`[${i + 1}/${logs.length}] ${post.post_id} [${log.post_group}] @${commentAccounts[ai % commentAccounts.length].nickname}`);
+    const r = await tryAllAccounts(post.post_id, log.comment_content, commentAccounts, ai);
+    ai = (r.usedIdx + 1) % commentAccounts.length;
 
     if (r.ok) {
       await updateOne('intervention_logs', { id: log.id }, {
@@ -158,7 +174,7 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
     } else {
       await updateOne('intervention_logs', { id: log.id }, { status: 'failed', error: r.err });
       failed++;
-      console.log(`    ❌ 双账号均失败(${r.err})`);
+      console.log(`    ❌ 全部 ${commentAccounts.length} 个账号均失败(${r.err})`);
 
       // ── 备选回补 ──
       if (sparePool.length > 0) {
@@ -176,11 +192,8 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
             status: 'pending',
           });
           if (spareLog) {
-            let sr = await sendOneComment(spare.post_id, log.comment_content, primary.cookie);
-            if (!sr.ok) {
-              await sleep(2000 + Math.random() * 3000);
-              sr = await sendOneComment(spare.post_id, log.comment_content, fallback.cookie);
-            }
+            const sr = await tryAllAccounts(spare.post_id, log.comment_content, commentAccounts, ai);
+            ai = (sr.usedIdx + 1) % commentAccounts.length;
             if (sr.ok) {
               await updateOne('intervention_logs', { id: spareLog.id }, {
                 status: 'sent', comment_id: sr.cid, sent_at: now(),
