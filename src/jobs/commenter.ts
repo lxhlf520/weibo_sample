@@ -176,10 +176,12 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
       failed++;
       console.log(`    ❌ 全部 ${commentAccounts.length} 个账号均失败(${r.err})`);
 
-      // ── 备选回补 ──
-      if (sparePool.length > 0) {
+      // ── 备选循环回补：不停拿备选帖重试，直到成功或池耗尽 ──
+      let backfilled = false;
+      while (!backfilled && sparePool.length > 0) {
         const spare = sparePool.shift()!;
-        console.log(`    🔄 备选回补: ${spare.post_id} [${spare.author_name}]`);
+        const spareIdx = sparePool.length; // 剩余备选数
+        console.log(`    🔄 备选回补(${spareIdx}篇剩余): ${spare.post_id} [${spare.author_name}]`);
         try {
           // 备选帖转为实验帖
           await updateOne('posts', { id: spare.id }, { is_spare: false, post_group: log.post_group });
@@ -200,15 +202,19 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
               });
               sent++;
               failed--;
+              backfilled = true;
               console.log(`    ✅ 回补成功 cid=${sr.cid}`);
             } else {
               await updateOne('intervention_logs', { id: spareLog.id }, { status: 'failed', error: sr.err });
-              console.log(`    ❌ 回补仍失败(${sr.err})`);
+              console.log(`    ❌ 回补失败(${sr.err})，继续尝试下一篇备选...`);
             }
           }
         } catch (e: any) {
           console.log(`    ⚠️ 回补异常: ${e.message}`);
         }
+      }
+      if (!backfilled) {
+        console.log(`    🚫 备选池已耗尽，本条评论最终失败`);
       }
     }
     await sleep(3000 + Math.random() * 5000);
