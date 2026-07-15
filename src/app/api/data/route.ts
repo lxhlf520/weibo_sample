@@ -70,6 +70,13 @@ export async function GET(request: NextRequest) {
         );
         return NextResponse.json({ meta });
       }
+      case 'post_detail': {
+        const { rows: detail } = await query(
+          'post_detail',
+          { experiment_id: experimentId },
+        );
+        return NextResponse.json({ detail });
+      }
       default:
         return NextResponse.json({ error: '未知数据类型' }, { status: 400 });
     }

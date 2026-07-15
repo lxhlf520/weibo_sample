@@ -1,10 +1,11 @@
 /**
  * 正式实验 - 评论数据采集与分析（微博适配版）
  * ============================================================================
- * 在评论发送后/监控期间采集评论数据，产出三张结果表：
- *   1. comment_snapshots   - 结构化评论快照（支持构建评论树）
- *   2. post_comment_meta   - 90 篇实验帖的全部评论 API 原始响应（溯源）
- *   3. post_user_meta      - 评论用户信息 API 原始响应（溯源）
+ * 产出四张溯源表（4 张结果表均来源于此）：
+ *   1. post_detail          - 帖子详情原始 API 响应（溯源）
+ *   2. post_comment_meta    - 全部评论 API 原始响应（溯源）
+ *   3. post_user_meta       - 评论用户信息 API 原始响应（溯源）
+ *   4. comment_snapshots    - 结构化评论快照（支持构建评论树）
  *
  * 直跑调试：npx tsx src/jobs/analyzer.ts [experimentId]
  */
@@ -49,11 +50,11 @@ async function collectPostComments(
   post: PostRow,
   cookie: string,
 ): Promise<{ comments: number; users: number }> {
-  // ── post_comment_meta：保存 statuses/show 原始响应 ──
+  // ── post_detail：保存帖子详情原始响应 ──
   const statusRaw = await fetchStatusRaw(cookie, post.post_id);
   if (statusRaw) {
     await upsert(
-      'post_comment_meta',
+      'post_detail',
       { experiment_id: experimentId, post_id: post.id },
       {
         experiment_id: experimentId,
@@ -67,6 +68,21 @@ async function collectPostComments(
 
   // ── 获取全部评论 ──
   const comments = await getAllComments(cookie, post.post_id, 10);
+
+  // ── post_comment_meta：保存评论原始响应 ──
+  if (comments.length > 0) {
+    await upsert(
+      'post_comment_meta',
+      { experiment_id: experimentId, post_id: post.id },
+      {
+        experiment_id: experimentId,
+        post_id: post.id,
+        weibo_mid: post.post_id,
+        raw_response: JSON.stringify(comments),
+        captured_at: now(),
+      },
+    );
+  }
 
   // ── comment_snapshots：结构化评论数据 ──
   const seenUsers = new Set<string>();
