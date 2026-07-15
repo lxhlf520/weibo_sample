@@ -177,11 +177,12 @@ export async function getComments(
     is_show_bulletin: '2',
     is_mix: '0',
     count: '20',
+    fetch_level: '0',
   });
   if (maxId) params.set('max_id', maxId);
 
   const resp = await fetch(
-    `https://weibo.com/ajax/comments/buildcomments?${params.toString()}`,
+    `https://weibo.com/ajax/statuses/buildComments?${params.toString()}`,
     { headers: headers(cookies) },
   );
 
