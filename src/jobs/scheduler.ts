@@ -18,6 +18,7 @@ import { runCollectBatch, finalizeExperiment } from './collector';
 import { runDailyComment } from './commenter';
 import { runMonitorTick } from './monitor';
 import { runCommentPermissionCheck } from './checker';
+import { runAnalyzer } from './analyzer';
 import { closeDb } from '../lib/db';
 import { COLLECT_HOURS, ts } from './shared';
 
@@ -25,11 +26,13 @@ const COMMENT_HOUR = 20; // 20:00 批次采完后 finalize + 评论
 const CHECK_HOUR = 19;
 const CHECK_MINUTE = 30; // 19:30 评论权限检测
 const MONITOR_INTERVAL_MIN = 30; // 每 30 分钟监控一次
+const ANALYZER_INTERVAL_MIN = 120; // 每 2 小时采集评论数据
 
 let busy = false; // 防止长任务重叠
 const firedHours = new Map<string, Set<number>>(); // 日期 → 已触发的整点集合
 let lastMonitorMinute = -1;
 let checkedCommentPermToday = ''; // 当天已检测日期字符串
+let lastAnalyzerMinute = -1;
 
 async function guarded(name: string, fn: () => Promise<unknown>): Promise<void> {
   if (busy) {
@@ -101,6 +104,12 @@ async function heartbeat(): Promise<void> {
   if (totalMin % MONITOR_INTERVAL_MIN === 0 && totalMin !== lastMonitorMinute) {
     lastMonitorMinute = totalMin;
     await guarded('监控tick', runMonitorTick);
+  }
+
+  // 每 2 小时采集评论数据
+  if (totalMin % ANALYZER_INTERVAL_MIN === 0 && totalMin !== lastAnalyzerMinute) {
+    lastAnalyzerMinute = totalMin;
+    await guarded('评论数据采集', runAnalyzer);
   }
 }
 

@@ -56,6 +56,20 @@ export async function GET(request: NextRequest) {
         );
         return NextResponse.json({ comments });
       }
+      case 'comment_meta': {
+        const { rows: meta } = await query(
+          'post_comment_meta',
+          { experiment_id: experimentId },
+        );
+        return NextResponse.json({ meta });
+      }
+      case 'user_meta': {
+        const { rows: meta } = await query(
+          'post_user_meta',
+          { experiment_id: experimentId },
+        );
+        return NextResponse.json({ meta });
+      }
       default:
         return NextResponse.json({ error: '未知数据类型' }, { status: 400 });
     }
@@ -134,6 +148,15 @@ export async function POST(request: NextRequest) {
         calculated++;
       }
       return NextResponse.json({ success: true, calculatedPosts: calculated });
+    }
+
+    if (action === 'collect_comments') {
+      const { experimentId } = body;
+      if (!experimentId) return NextResponse.json({ error: '缺少实验ID' }, { status: 400 });
+      // 异步触发评论数据采集
+      import('@/jobs/analyzer').then(({ runAnalyzer }) => runAnalyzer(experimentId))
+        .catch((e) => console.error('评论采集后台任务异常:', e));
+      return NextResponse.json({ success: true, message: '评论数据采集任务已触发' });
     }
 
     return NextResponse.json({ error: '无效action' }, { status: 400 });
