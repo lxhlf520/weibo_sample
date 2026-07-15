@@ -64,12 +64,10 @@ async function main() {
   const existingTemplates = await count('comment_templates');
   if (existingTemplates === 0) {
     const defaults = [
-      { post_group: 'low', content: '写得很好，感谢分享', is_active: true, sort_order: 1 },
-      { post_group: 'low', content: '不错，支持一下', is_active: true, sort_order: 2 },
-      { post_group: 'low', content: '说得有道理', is_active: true, sort_order: 3 },
-      { post_group: 'high', content: '这个观点太棒了！收藏了，期待更多类似的内容', is_active: true, sort_order: 1 },
-      { post_group: 'high', content: '总结得非常到位，学习了！已转发给朋友', is_active: true, sort_order: 2 },
-      { post_group: 'high', content: '真的很有启发，写得特别详细，点赞！', is_active: true, sort_order: 3 },
+      { post_group: 'low', content: '路过看到这条。', is_active: true, sort_order: 1 },
+      { post_group: 'low', content: '刷到这条了。', is_active: true, sort_order: 2 },
+      { post_group: 'high', content: 'AI生成评论：路过看到这条。', is_active: true, sort_order: 1 },
+      { post_group: 'high', content: 'AI生成评论：刷到这条了。', is_active: true, sort_order: 2 },
     ];
     for (const t of defaults) await insert('comment_templates', t);
     console.log(`  已初始化 ${defaults.length} 条默认评论模板`);
