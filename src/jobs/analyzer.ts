@@ -25,6 +25,7 @@ import {
 interface PostRow {
   id: string;
   post_id: string;
+  post_url: string;
   experiment_id: string;
 }
 
@@ -78,6 +79,7 @@ async function collectPostComments(
         experiment_id: experimentId,
         post_id: post.id,
         weibo_mid: post.post_id,
+        post_url: post.post_url,
         raw_response: JSON.stringify(comments),
         captured_at: now(),
       },
