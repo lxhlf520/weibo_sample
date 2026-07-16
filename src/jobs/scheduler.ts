@@ -19,6 +19,8 @@ import { runDailyComment } from './commenter';
 import { runMonitorTick } from './monitor';
 import { runCommentPermissionCheck } from './checker';
 import { runAnalyzer } from './analyzer';
+import { runRetryCollector } from './retry-collector';
+import { ensureTemplates } from '../lib/seed-templates';
 import { closeDb } from '../lib/db';
 import { COLLECT_HOURS, ts } from './shared';
 
@@ -27,6 +29,7 @@ const CHECK_HOUR = 19;
 const CHECK_MINUTE = 30; // 19:30 评论权限检测
 const MONITOR_INTERVAL_MIN = 30; // 每 30 分钟监控一次
 const ANALYZER_INTERVAL_MIN = 120; // 每 2 小时采集评论数据
+const RETRY_HOURS = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23]; // 奇数小时空闲重试
 
 let busy = false; // 防止长任务重叠
 const firedHours = new Map<string, Set<number>>(); // 日期 → 已触发的整点集合
@@ -111,13 +114,25 @@ async function heartbeat(): Promise<void> {
     lastAnalyzerMinute = totalMin;
     await guarded('评论数据采集', runAnalyzer);
   }
+  
+  // 奇数小时空闲时重试采集失败（在整点后 30 分钟窗口内，不与其他任务重叠）
+  if (minute >= 30 && minute < 60 && RETRY_HOURS.includes(hour) && claimHour(today, hour + 100)) {
+    await guarded('空闲背压重试', () => runRetryCollector());
+  }
 }
 
 function main(): void {
   console.log(`${'='.repeat(60)}`);
   console.log(`微博正式实验调度器启动  [${ts()}]`);
   console.log(`  采集批次: ${COLLECT_HOURS.join('/')}点 | ${CHECK_HOUR}:${CHECK_MINUTE} 权限检测 | ${COMMENT_HOUR}点批后选帖+评论 | 每${MONITOR_INTERVAL_MIN}min 监控`);
+  console.log(`  背压重试: 奇数小时 30-59分 | 模板同步: 启动时自动`);
   console.log(`${'='.repeat(60)}`);
+
+  // 启动时同步评论模板
+  guarded('模板同步', async () => {
+    const { created, existing } = await ensureTemplates();
+    console.log(`[模板同步] 新增 ${created} 条, 已有 ${existing} 条`);
+  });
 
   // 每分钟心跳
   setInterval(() => {

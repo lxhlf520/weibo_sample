@@ -7,10 +7,14 @@
  *   3. post_user_meta       - 评论用户信息 API 原始响应（溯源）
  *   4. comment_snapshots    - 结构化评论快照（支持构建评论树）
  *
- * 直跑调试：npx tsx src/jobs/analyzer.ts [experimentId]
+ * 失败追踪：失败帖子写入 collection_errors，成功则清除。
+ * retryOnly=true 时只重试 collection_errors 中的帖子。
+ *
+ * 直跑调试：npx tsx src/jobs/analyzer.ts [experimentId]           # 全量采集
+ *          npx tsx src/jobs/analyzer.ts [experimentId] retry     # 仅重试失败
  */
 
-import { query, upsert, maybeOne } from '../lib/db';
+import { query, upsert, maybeOne, deleteOne } from '../lib/db';
 import { getAllComments, getUserProfile } from '../lib/weibo-api';
 import type { WeiboComment } from '../lib/weibo-api';
 import {
@@ -37,11 +41,8 @@ interface ExperimentRun {
 
 /** 提取评论的父评论 ID（微博用 rootidstr + reply_comment.id 判断） */
 function getParentCommentId(c: WeiboComment): string | null {
-  // 如果 reply_comment 存在，说明这是对某条评论的回复
   if (c.reply_comment?.id) return c.reply_comment.id;
-  // 如果 rootidstr 存在且不等于自己的 id，说明属于某个评论线程
   if (c.rootidstr && c.rootidstr !== c.idstr) return c.rootidstr;
-  // 否则是对帖子的直接评论
   return null;
 }
 
@@ -61,6 +62,7 @@ async function collectPostComments(
         experiment_id: experimentId,
         post_id: post.id,
         weibo_mid: post.post_id,
+        post_url: post.post_url,
         raw_response: JSON.stringify(statusRaw),
         captured_at: now(),
       },
@@ -112,7 +114,6 @@ async function collectPostComments(
     const uid = c.user?.idstr || String(c.user?.id || '');
     if (uid && !seenUsers.has(uid)) {
       seenUsers.add(uid);
-      // 获取用户原始数据
       const profile = await getUserProfile(cookie, uid);
       if (profile) {
         await upsert(
@@ -136,6 +137,7 @@ async function collectPostComments(
 async function collectExperiment(
   experimentId: string,
   accounts: Account[],
+  retryOnly: boolean,
 ): Promise<{ posts: number; totalComments: number; totalUsers: number }> {
   const { rows: posts } = await query<PostRow>('posts', { experiment_id: experimentId });
   if (!posts.length) {
@@ -143,31 +145,78 @@ async function collectExperiment(
     return { posts: 0, totalComments: 0, totalUsers: 0 };
   }
 
+  // retryOnly 模式：只处理 collection_errors 中的帖子
+  let targetPostIds: Set<string> | null = null;
+  if (retryOnly) {
+    const { rows: errors } = await query<{ post_id: string }>(
+      'collection_errors',
+      { experiment_id: experimentId },
+    );
+    if (errors.length === 0) {
+      console.log(`  无需重试（collection_errors 为空）`);
+      return { posts: 0, totalComments: 0, totalUsers: 0 };
+    }
+    targetPostIds = new Set(errors.map((e) => e.post_id));
+    console.log(`  重试模式: ${targetPostIds.size} 帖待重试`);
+  }
+
   let totalComments = 0;
   let totalUsers = 0;
+  let processed = 0;
 
   for (let i = 0; i < posts.length; i++) {
     const post = posts[i];
-    const acc = accounts[i % accounts.length];
+
+    // retryOnly 模式下跳过不在错误列表中的帖子
+    if (targetPostIds && !targetPostIds.has(post.id) && !targetPostIds.has(post.post_id)) {
+      continue;
+    }
+
+    const acc = accounts[processed % accounts.length];
     try {
       const { comments, users } = await collectPostComments(experimentId, post, acc.cookie);
       totalComments += comments;
       totalUsers += users;
+      // 采集成功，清除之前的失败记录
+      await deleteOne('collection_errors', { experiment_id: experimentId, post_id: post.id });
     } catch (e: any) {
       console.log(`    ⚠️ ${post.post_id} 评论采集失败: ${e.message}`);
+      // 记录失败，供后续重试
+      const { rows: existing } = await query<{ retry_count: number }>(
+        'collection_errors',
+        { experiment_id: experimentId, post_id: post.id },
+      );
+      const retryCount = existing.length > 0 ? (existing[0].retry_count || 0) + 1 : 0;
+
+      await upsert(
+        'collection_errors',
+        { experiment_id: experimentId, post_id: post.id },
+        {
+          experiment_id: experimentId,
+          post_id: post.id,
+          weibo_mid: post.post_id,
+          error_msg: (e.message || String(e)).slice(0, 200),
+          retry_count: retryCount,
+          last_error_at: now(),
+        },
+      );
     }
+
+    processed++;
     await sleep(500 + Math.random() * 1000);
-    if ((i + 1) % 20 === 0) {
-      console.log(`    评论采集进度: ${i + 1}/${posts.length} (评论:${totalComments}, 用户:${totalUsers})`);
+    if (processed % 20 === 0) {
+      const label = retryOnly ? '重试' : '评论采集';
+      console.log(`    ${label}进度: ${processed}帖 (评论:${totalComments}, 用户:${totalUsers})`);
     }
   }
 
-  return { posts: posts.length, totalComments, totalUsers };
+  return { posts: processed, totalComments, totalUsers };
 }
 
-export async function runAnalyzer(expIdArg?: string): Promise<void> {
+export async function runAnalyzer(expIdArg?: string, retryOnly = false): Promise<void> {
+  const modeLabel = retryOnly ? '重试模式（仅失败帖子）' : '全量采集';
   console.log(`\n${'='.repeat(60)}`);
-  console.log(`[评论数据采集] 开始  [${ts()}]`);
+  console.log(`[评论数据采集] ${modeLabel} 开始  [${ts()}]`);
   console.log(`${'='.repeat(60)}\n`);
 
   const accounts = await getActiveAccounts();
@@ -179,7 +228,7 @@ export async function runAnalyzer(expIdArg?: string): Promise<void> {
 
   let experiments: ExperimentRun[];
 
-  if (expIdArg) {
+  if (expIdArg && !['retry', 'true', '1'].includes(expIdArg.toLowerCase())) {
     const exp = await maybeOne<ExperimentRun>('experiment_runs', { id: expIdArg });
     experiments = exp ? [exp] : [];
   } else {
@@ -198,7 +247,9 @@ export async function runAnalyzer(expIdArg?: string): Promise<void> {
   for (const exp of experiments) {
     const experimentId = String(exp.id);
     console.log(`[${experimentId}] 开始采集评论数据...`);
-    const { posts, totalComments, totalUsers } = await collectExperiment(experimentId, accounts);
+    const { posts, totalComments, totalUsers } = await collectExperiment(
+      experimentId, accounts, retryOnly,
+    );
     console.log(`[${experimentId}] 完成: ${posts} 帖, ${totalComments} 条评论, ${totalUsers} 个用户\n`);
     await sleep(2000);
   }
@@ -208,7 +259,10 @@ export async function runAnalyzer(expIdArg?: string): Promise<void> {
 
 // ── 直跑入口 ──
 if (process.argv[1] && process.argv[1].replace(/\\/g, '/').endsWith('jobs/analyzer.ts')) {
-  runAnalyzer(process.argv[2])
+  const arg0 = process.argv[2];
+  const isRetry = arg0 === 'retry' || process.argv[3] === 'retry';
+  const expId = isRetry ? (arg0 !== 'retry' ? arg0 : undefined) : arg0;
+  runAnalyzer(expId, isRetry)
     .then(async () => {
       const { closeDb } = await import('../lib/db');
       await closeDb();

@@ -133,6 +133,7 @@ low 组 4 条 + high 组 4 条（high 组内容前带 "AI生成评论：" 前缀
 | `experiment_id` | string | ✅ | 实验 ID |
 | `post_id` | string | ✅ | 帖子 mid（唯一键，配合 experiment_id） |
 | `weibo_mid` | string | ✅ | 帖子 mid（冗余，方便不带实验 ID 的查询） |
+| `post_url` | string | ✅ | 帖子完整 URL，方便快速打开原帖 |
 | `raw_response` | string | ✅ | `statuses/show` API 完整 JSON 响应（25KB+） |
 | `captured_at` | string | ✅ | 采集时间 (ISO 8601) |
 | `created_at` | string | ✅ | 写入时间 (ISO 8601) |
@@ -243,7 +244,29 @@ low 组 4 条 + high 组 4 条（high 组内容前带 "AI生成评论：" 前缀
 
 ---
 
-## 六、数据流全景
+## 六、调度辅助集合
+
+### `collection_errors` — 采集失败记录
+
+analyzer 采集过程中失败的帖子记录在此，供 `retry-collector` 空闲时背压重试。成功则自动清除。
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|:---:|------|
+| `experiment_id` | string | ✅ | 实验 ID |
+| `post_id` | string | ✅ | 帖子 posts._id 字符串（唯一键） |
+| `weibo_mid` | string | | 微博 mid，方便查询 |
+| `error_msg` | string | ✅ | 最后一次失败的错误消息（截断至 200 字符） |
+| `retry_count` | number | ✅ | 已重试次数，每次失败 +1 |
+| `last_error_at` | string | ✅ | 最后一次失败时间 (ISO 8601) |
+
+**生命周期**:
+1. analyzer 采集失败 → `upsert` 写入，retry_count=0
+2. retry-collector 重试失败 → `upsert` 更新 retry_count+1
+3. 任一次重试成功 → `deleteOne` 清除记录
+
+---
+
+## 七、数据流全景
 
 ```
                      ┌──────────────────────┐
