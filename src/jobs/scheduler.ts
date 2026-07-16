@@ -129,27 +129,30 @@ function main(): void {
   console.log(`  背压重试: 奇数小时 30-59分 | 模板同步+数据迁移: 启动时自动`);
   console.log(`${'='.repeat(60)}`);
 
-  // 启动时：数据迁移（PREFIX 适配 + post_group 回填）
-  guarded('启动数据迁移', async () => {
-    const { postsMigrated, postGroupBackfilled, skipped } = await runStartupMigration();
-    if (!skipped) {
-      console.log(`[启动迁移] 帖子迁移 ${postsMigrated} 条, post_group 回填 ${postGroupBackfilled} 条`);
-    }
-  });
+  // 启动任务（顺序执行）
+  (async () => {
+    // 启动时同步评论模板（先跑，不依赖 posts）
+    await guarded('模板同步', async () => {
+      const { created, existing } = await ensureTemplates();
+      console.log(`[模板同步] 新增 ${created} 条, 已有 ${existing} 条`);
+    });
 
-  // 启动时同步评论模板
-  guarded('模板同步', async () => {
-    const { created, existing } = await ensureTemplates();
-    console.log(`[模板同步] 新增 ${created} 条, 已有 ${existing} 条`);
-  });
+    // 启动时：数据迁移（PREFIX 适配 + post_group 回填）
+    await guarded('启动数据迁移', async () => {
+      const { postsMigrated, postGroupBackfilled, skipped } = await runStartupMigration();
+      if (!skipped) {
+        console.log(`[启动迁移] 帖子迁移 ${postsMigrated} 条, post_group 回填 ${postGroupBackfilled} 条`);
+      }
+    });
+
+    // 启动即跑一次监控（补采可能遗漏的点）
+    await guarded('启动监控', runMonitorTick);
+  })();
 
   // 每分钟心跳
   setInterval(() => {
     heartbeat().catch((e) => console.error('[调度] 心跳异常:', e));
   }, 60_000);
-
-  // 启动即跑一次监控（补采可能遗漏的点）
-  guarded('启动监控', runMonitorTick);
 }
 
 async function shutdown(): Promise<void> {
