@@ -77,6 +77,11 @@
 | `status` | string | ✅ | `pending` → `sent` → `failed` |
 | `comment_id` | string | | 微博评论 ID（发送成功后写入） |
 | `sent_at` | string | | 评论发送时间 |
+| `account_nickname` | string | | 实际发出评论的账号昵称（sent 时写入） |
+| `account_uid` | string | | 实际发出评论的微博 UID（sent 时写入） |
+| `error` | string | | 失败原因（仅 status = failed） |
+
+**注意**: `account_nickname` 和 `account_uid` 仅在 `status=sent` 时有值，通过追踪哪个账号成功发出了评论。
 
 ---
 
