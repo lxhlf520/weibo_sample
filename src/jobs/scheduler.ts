@@ -21,6 +21,7 @@ import { runCommentPermissionCheck } from './checker';
 import { runAnalyzer } from './analyzer';
 import { runRetryCollector } from './retry-collector';
 import { ensureTemplates } from '../lib/seed-templates';
+import { runStartupMigration } from '../lib/startup-migration';
 import { closeDb } from '../lib/db';
 import { COLLECT_HOURS, ts } from './shared';
 
@@ -125,8 +126,16 @@ function main(): void {
   console.log(`${'='.repeat(60)}`);
   console.log(`微博正式实验调度器启动  [${ts()}]`);
   console.log(`  采集批次: ${COLLECT_HOURS.join('/')}点 | ${CHECK_HOUR}:${CHECK_MINUTE} 权限检测 | ${COMMENT_HOUR}点批后选帖+评论 | 每${MONITOR_INTERVAL_MIN}min 监控`);
-  console.log(`  背压重试: 奇数小时 30-59分 | 模板同步: 启动时自动`);
+  console.log(`  背压重试: 奇数小时 30-59分 | 模板同步+数据迁移: 启动时自动`);
   console.log(`${'='.repeat(60)}`);
+
+  // 启动时：数据迁移（PREFIX 适配 + post_group 回填）
+  guarded('启动数据迁移', async () => {
+    const { postsMigrated, postGroupBackfilled, skipped } = await runStartupMigration();
+    if (!skipped) {
+      console.log(`[启动迁移] 帖子迁移 ${postsMigrated} 条, post_group 回填 ${postGroupBackfilled} 条`);
+    }
+  });
 
   // 启动时同步评论模板
   guarded('模板同步', async () => {

@@ -230,9 +230,13 @@ export async function upsert<T = Record<string, unknown>>(
   data: Record<string, unknown>,
 ): Promise<T | null> {
   const coll = (await getDb()).collection(cn(collection));
+  const setOnInsert: Record<string, unknown> = {};
+  if (!('created_at' in data)) {
+    setOnInsert.created_at = new Date().toISOString();
+  }
   const result = await coll.findOneAndUpdate(
     normalizeFilter(filter),
-    { $set: data, $setOnInsert: { created_at: new Date().toISOString() } },
+    { $set: data, $setOnInsert: setOnInsert },
     { upsert: true, returnDocument: 'after' },
   );
   return formatDoc<T>(result);
