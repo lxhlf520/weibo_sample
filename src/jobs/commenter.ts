@@ -25,6 +25,7 @@ import {
 interface PostRow {
   id: string;
   post_id: string;
+  post_url?: string;
   post_group: string | null;
   is_spare?: boolean;
   content?: string;
@@ -191,6 +192,7 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
           const spareLog = await insert<{ id: string }>('intervention_logs', {
             experiment_id: experimentId,
             post_id: String(spare.id),
+            post_url: spare.post_url || null,
             post_group: log.post_group,
             comment_template: log.comment_template,
             comment_content: log.comment_content,

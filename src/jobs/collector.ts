@@ -245,6 +245,7 @@ export async function finalizeExperiment(): Promise<{ experimentId: string } | n
       await insert('intervention_logs', {
         experiment_id: experimentId,
         post_id: String(post.id),
+        post_url: p.postUrl,
         post_group: item.group,
         comment_template: (item as any).templateId ? String((item as any).templateId) : null,
         comment_content: item.commentContent,
