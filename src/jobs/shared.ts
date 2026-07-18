@@ -145,7 +145,19 @@ export async function scrapeRealtimeMids(cookie: string, keyword: string, page: 
   });
   if (!resp.ok) return [];
   const html = await resp.text();
-  return [...html.matchAll(/mid="(\d+)"/g)].map((m) => m[1]);
+  // 正则提取 mid
+  const mids = [...html.matchAll(/mid="(\d+)"/g)].map((m) => m[1]);
+  // 调试：首次抓不到时输出 HTML 片段，帮助定位页面结构变化
+  if (mids.length === 0 && page === 1) {
+    console.log(`  [调试] realtime?q=${keyword} 状态=${resp.status} HTML长度=${html.length} URL=${resp.url.substring(0,80)}`);
+    const cardIdx = html.indexOf('card-wrap');
+    if (cardIdx >= 0) {
+      console.log(`  [调试] 找到 card-wrap 但 mid regex 未命中，HTML片段: ${html.substring(cardIdx, cardIdx + 300).replace(/\s+/g, ' ')}`);
+    } else {
+      console.log(`  [调试] 未找到 card-wrap，HTML前300: ${html.substring(0, 300).replace(/\s+/g, ' ')}`);
+    }
+  }
+  return mids;
 }
 
 // ─── statuses/show 获取帖子原始数据 ────────────────────────
