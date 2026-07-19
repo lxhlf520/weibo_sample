@@ -133,6 +133,9 @@ export function ts(): string {
 
 // ─── s.weibo.com/realtime 网页抓取 mid ─────────────────────
 
+/** 已告警过 cookie 过期的账号消重 */
+const warnedExpired = new Set<string>();
+
 export async function scrapeRealtimeMids(cookie: string, keyword: string, page: number = 1): Promise<string[]> {
   const url = `https://s.weibo.com/realtime?q=${encodeURIComponent(keyword)}&page=${page}`;
   const resp = await fetch(url, {
@@ -142,9 +145,22 @@ export async function scrapeRealtimeMids(cookie: string, keyword: string, page: 
       Referer: 'https://s.weibo.com/',
       Accept: 'text/html,application/xhtml+xml',
     },
+    redirect: 'follow',
   });
   if (!resp.ok) return [];
   const html = await resp.text();
+
+  // cookie 过期检测：被重定向到 SSO 登录页
+  const isLoginPage = resp.url.includes('login.sina.com.cn');
+  if (isLoginPage && page === 1) {
+    const cookieId = cookie.substring(0, 60);
+    if (!warnedExpired.has(cookieId)) {
+      warnedExpired.add(cookieId);
+      console.log(`⚠️ Cookie 过期: 请求被重定向到登录页 (keyword=${keyword})，请刷新该账号 cookie`);
+    }
+    return [];
+  }
+
   // 正则提取 mid
   const mids = [...html.matchAll(/mid="(\d+)"/g)].map((m) => m[1]);
   // 调试：首次抓不到时输出 HTML 片段，帮助定位页面结构变化
