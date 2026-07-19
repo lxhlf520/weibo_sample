@@ -18,6 +18,7 @@ import { runCollectBatch, finalizeExperiment } from './collector';
 import { runDailyComment } from './commenter';
 import { runMonitorTick } from './monitor';
 import { runCommentPermissionCheck } from './checker';
+import { runDailyCookieCheck } from './daily-checker';
 import { runAnalyzer } from './analyzer';
 import { runRetryCollector } from './retry-collector';
 import { ensureTemplates } from '../lib/seed-templates';
@@ -28,6 +29,7 @@ import { COLLECT_HOURS, ts } from './shared';
 const COMMENT_HOUR = 20; // 20:00 批次采完后 finalize + 评论
 const CHECK_HOUR = 19;
 const CHECK_MINUTE = 30; // 19:30 评论权限检测
+const COOKIE_CHECK_HOUR = 3; // 3:00 每日 cookie 有效性巡检
 const MONITOR_INTERVAL_MIN = 30; // 每 30 分钟监控一次
 const ANALYZER_INTERVAL_MIN = 120; // 每 2 小时采集评论数据
 const RETRY_HOURS = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23]; // 奇数小时空闲重试
@@ -36,6 +38,7 @@ let busy = false; // 防止长任务重叠
 const firedHours = new Map<string, Set<number>>(); // 日期 → 已触发的整点集合
 let lastMonitorMinute = -1;
 let checkedCommentPermToday = ''; // 当天已检测日期字符串
+let checkedCookieToday = ''; // 当天已 cookie 巡检日期字符串
 let lastAnalyzerMinute = -1;
 
 async function guarded(name: string, fn: () => Promise<unknown>): Promise<void> {
@@ -85,6 +88,15 @@ async function heartbeat(): Promise<void> {
   const today = dateStr(nowDate);
   const hour = nowDate.getHours();
   const minute = nowDate.getMinutes();
+
+  // 3:00 每日 cookie 有效性巡检（每天一次）
+  if (hour === COOKIE_CHECK_HOUR && minute === 0 && today !== checkedCookieToday) {
+    await guarded('3:00 Cookie巡检', async () => {
+      checkedCookieToday = today;
+      await runDailyCookieCheck();
+    });
+    return;
+  }
 
   // 19:30 评论权限检测（每天一次）
   if (hour === CHECK_HOUR && minute === CHECK_MINUTE && today !== checkedCommentPermToday) {
@@ -137,7 +149,7 @@ async function heartbeat(): Promise<void> {
 function main(): void {
   console.log(`${'='.repeat(60)}`);
   console.log(`微博正式实验调度器启动  [${ts()}]`);
-  console.log(`  采集批次: ${COLLECT_HOURS.join('/')}点 | ${CHECK_HOUR}:${CHECK_MINUTE} 权限检测 | ${COMMENT_HOUR}点批后选帖+评论 | 每${MONITOR_INTERVAL_MIN}min 监控`);
+  console.log(`  采集批次: ${COLLECT_HOURS.join('/')}点 | ${COOKIE_CHECK_HOUR}:00 Cookie巡检 | ${CHECK_HOUR}:${CHECK_MINUTE} 权限检测 | ${COMMENT_HOUR}点批后选帖+评论 | 每${MONITOR_INTERVAL_MIN}min 监控`);
   console.log(`  背压重试: 奇数小时 30-59分 | 模板同步+数据迁移: 启动时自动`);
   console.log(`${'='.repeat(60)}`);
 

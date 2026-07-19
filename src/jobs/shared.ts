@@ -17,6 +17,7 @@ export interface Account {
   can_comment?: boolean; // 评论权限（风控禁评为 false，不影响采集）
   comment_checked_at?: string;
   comment_ban_reason?: string;
+  cookie_checked_at?: string; // 每日 cookie 有效性巡检时间
 }
 
 export interface ScreeningPost {
@@ -99,7 +100,7 @@ export const PROBE_COMMENTS = ['记录一下', '打卡', '日常mark', '收到',
 
 // ─── 通用工具函数 ──────────────────────────────────────────
 
-const PC_UA =
+export const PC_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 export function sleep(ms: number): Promise<void> {

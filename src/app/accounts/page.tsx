@@ -16,6 +16,7 @@ interface WeiboAccount {
   can_comment?: boolean;
   comment_checked_at?: string;
   comment_ban_reason?: string;
+  cookie_checked_at?: string;
 }
 
 export default function AccountsPage() {
@@ -231,6 +232,11 @@ export default function AccountsPage() {
                 <div className="text-xs text-gray-400 mb-2">
                   权限检测: {formatTime(acc.comment_checked_at)}
                   {acc.comment_ban_reason && <span className="text-red-400 ml-2">({acc.comment_ban_reason})</span>}
+                </div>
+              )}
+              {acc.cookie_checked_at && (
+                <div className="text-xs text-gray-400 mb-2">
+                  Cookie有效性: {formatTime(acc.cookie_checked_at)}
                 </div>
               )}
               <button
