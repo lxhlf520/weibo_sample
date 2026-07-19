@@ -134,7 +134,11 @@ export async function checkQrCode(qrid: string, cookies: string): Promise<QrChec
     }
     return { status: 'confirmed', cookies: finalCookies, uid: extractUid(finalCookies) };
   } else if (retcode === 50114001) {
-    return { status: 'scanned', message: msg };
+    // 等待扫码
+    return { status: 'waiting' };
+  } else if (retcode === 50114002) {
+    // 已扫码，等待用户在手机确认
+    return { status: 'scanned', message: msg || '已扫码，请在手机上确认' };
   } else if (retcode === 50114003) {
     return { status: 'expired', message: '二维码已过期，请刷新' };
   } else if (retcode === 50114004) {
