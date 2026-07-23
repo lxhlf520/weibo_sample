@@ -25,7 +25,7 @@ import {
 
 interface PostRow {
   id: string;
-  post_id: string;
+  mid: string;
 }
 
 /** 采集指定实验在指定监控点的全部帖快照 */
@@ -34,12 +34,12 @@ async function capturePoint(experimentId: string, point: string, accounts: Accou
   let ok = 0;
   for (let i = 0; i < posts.length; i++) {
     const p = posts[i];
-    const md = await fetchStatusRaw(accounts[i % accounts.length].cookie, p.post_id);
+    const md = await fetchStatusRaw(accounts[i % accounts.length].cookie, p.mid);
     if (md && md.ok !== 0) {
       await insert('post_snapshots', {
         experiment_id: experimentId,
         post_id: String(p.id),
-        weibo_mid: p.post_id,
+        mid: p.mid,
         time_point: point,
         comments_count: md.comments_count || 0,
         reposts_count: md.reposts_count || 0,

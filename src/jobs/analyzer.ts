@@ -28,7 +28,7 @@ import {
 
 interface PostRow {
   id: string;
-  post_id: string;
+  mid: string;
   post_url: string;
   experiment_id: string;
 }
@@ -53,7 +53,7 @@ async function collectPostComments(
   cookie: string,
 ): Promise<{ comments: number; users: number }> {
   // ── post_detail：保存帖子详情原始响应 ──
-  const statusRaw = await fetchStatusRaw(cookie, post.post_id);
+  const statusRaw = await fetchStatusRaw(cookie, post.mid);
   if (statusRaw) {
     await upsert(
       'post_detail',
@@ -61,7 +61,7 @@ async function collectPostComments(
       {
         experiment_id: experimentId,
         post_id: post.id,
-        weibo_mid: post.post_id,
+        mid: post.mid,
         post_url: post.post_url,
         raw_response: JSON.stringify(statusRaw),
         captured_at: now(),
@@ -70,7 +70,7 @@ async function collectPostComments(
   }
 
   // ── 获取全部评论 ──
-  const comments = await getAllComments(cookie, post.post_id, 10);
+  const comments = await getAllComments(cookie, post.mid, 10);
 
   // ── post_comment_meta：保存评论原始响应 ──
   if (comments.length > 0) {
@@ -80,7 +80,7 @@ async function collectPostComments(
       {
         experiment_id: experimentId,
         post_id: post.id,
-        weibo_mid: post.post_id,
+        mid: post.mid,
         post_url: post.post_url,
         raw_response: JSON.stringify(comments),
         captured_at: now(),
@@ -98,7 +98,7 @@ async function collectPostComments(
       {
         experiment_id: experimentId,
         post_id: post.id,
-        weibo_mid: post.post_id,
+        mid: post.mid,
         comment_id: c.idstr,
         parent_comment_id: getParentCommentId(c),
         author_uid: c.user?.idstr || String(c.user?.id || ''),
@@ -168,7 +168,7 @@ async function collectExperiment(
     const post = posts[i];
 
     // retryOnly 模式下跳过不在错误列表中的帖子
-    if (targetPostIds && !targetPostIds.has(post.id) && !targetPostIds.has(post.post_id)) {
+    if (targetPostIds && !targetPostIds.has(post.id) && !targetPostIds.has(post.mid)) {
       continue;
     }
 
@@ -180,7 +180,7 @@ async function collectExperiment(
       // 采集成功，清除之前的失败记录
       await deleteOne('collection_errors', { experiment_id: experimentId, post_id: post.id });
     } catch (e: any) {
-      console.log(`    ⚠️ ${post.post_id} 评论采集失败: ${e.message}`);
+      console.log(`    ⚠️ ${post.mid} 评论采集失败: ${e.message}`);
       // 记录失败，供后续重试
       const { rows: existing } = await query<{ retry_count: number }>(
         'collection_errors',
@@ -194,7 +194,7 @@ async function collectExperiment(
         {
           experiment_id: experimentId,
           post_id: post.id,
-          weibo_mid: post.post_id,
+          mid: post.mid,
           error_msg: (e.message || String(e)).slice(0, 200),
           retry_count: retryCount,
           last_error_at: now(),

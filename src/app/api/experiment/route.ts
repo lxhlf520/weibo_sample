@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       for (const item of withTemplates) {
         const post = await insert('posts', {
           user_id: auth.id, experiment_id: experimentId,
-          post_id: item.post.postId, post_url: item.post.postUrl, content: item.post.content,
+          mid: item.post.postId, post_url: item.post.postUrl, content: item.post.content,
           author_uid: item.post.authorUid, author_name: item.post.authorName, followers: item.post.followers,
           comments_count: item.post.commentsCount, reposts_count: item.post.repostsCount,
           likes_count: item.post.likesCount, post_group: item.group,

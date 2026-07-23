@@ -171,7 +171,7 @@ async function main() {
 
       await upsert('post_detail',
         { experiment_id: testExpId, post_id: testPostId },
-        { experiment_id: testExpId, post_id: testPostId, weibo_mid: testPostId, raw_response: JSON.stringify(statusRaw), captured_at: now() },
+        { experiment_id: testExpId, post_id: testPostId, mid: testPostId, raw_response: JSON.stringify(statusRaw), captured_at: now() },
       );
       record('post_detail写入', true, `已写入`);
     } else {
@@ -208,7 +208,7 @@ async function main() {
       // → post_comment_meta：原始评论数据
       await upsert('post_comment_meta',
         { experiment_id: testExpId, post_id: testPostId },
-        { experiment_id: testExpId, post_id: testPostId, weibo_mid: testPostId, raw_response: JSON.stringify(allComments), captured_at: now() },
+        { experiment_id: testExpId, post_id: testPostId, mid: testPostId, raw_response: JSON.stringify(allComments), captured_at: now() },
       );
       record('post_comment_meta', true, `已写入`);
 
@@ -220,7 +220,7 @@ async function main() {
         await upsert('comment_snapshots',
           { experiment_id: testExpId, comment_id: c.idstr },
           {
-            experiment_id: testExpId, post_id: testPostId, weibo_mid: testPostId,
+            experiment_id: testExpId, post_id: testPostId, mid: testPostId,
             comment_id: c.idstr,
             parent_comment_id: parentId || null,
             author_uid: c.user?.idstr || String(c.user?.id || ''),
