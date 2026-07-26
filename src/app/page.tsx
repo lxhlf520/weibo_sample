@@ -58,7 +58,7 @@ export default function HomePage() {
   const handleTestCollect = async () => {
     setTestCollectResult({ loading: true });
     try {
-      const resp = await fetch('/api/test/collect', { method: 'POST' });
+      const resp = await fetch('/api/test/collect', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
       const data = await resp.json();
       setTestCollectResult({ loading: false, data });
     } catch (e: any) {
@@ -70,7 +70,7 @@ export default function HomePage() {
   const handleTestComment = async () => {
     setTestCommentResult({ loading: true });
     try {
-      const resp = await fetch('/api/test/comment', { method: 'POST' });
+      const resp = await fetch('/api/test/comment', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
       const data = await resp.json();
       setTestCommentResult({ loading: false, data });
     } catch (e: any) {
@@ -128,7 +128,7 @@ export default function HomePage() {
                 type="text"
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
-                placeholder="请输入您的实验Token"
+                placeholder="请输入您的实验Token（离线模式：admin-dev-token-for-local-dashboard）"
                 className="w-full border border-gray-300 rounded-lg px-4 py-2.5 mb-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 onKeyDown={(e) => e.key === 'Enter' && handleTokenLogin()}
               />

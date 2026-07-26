@@ -8,6 +8,15 @@ export interface ExperimentUser {
   created_at: string;
 }
 
+/** 离线 fallback token：无 MongoDB 时可用此 token 登录本地仪表盘 */
+const OFFLINE_TOKEN = 'admin-dev-token-for-local-dashboard';
+const OFFLINE_USER: ExperimentUser = {
+  id: 'offline-admin',
+  token: OFFLINE_TOKEN,
+  name: '离线管理员',
+  created_at: new Date().toISOString(),
+};
+
 /**
  * 从 Authorization header 中提取 Bearer token
  */
@@ -22,6 +31,8 @@ export function extractToken(request: Request): string | null {
  */
 export async function verifyToken(token: string): Promise<ExperimentUser | null> {
   if (!token || token.length < 10) return null;
+  // 离线模式 fallback
+  if (token === OFFLINE_TOKEN) return OFFLINE_USER;
   try {
     return await maybeOne<ExperimentUser>('experiment_users', { token });
   } catch {
