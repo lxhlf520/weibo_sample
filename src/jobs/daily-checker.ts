@@ -20,6 +20,7 @@ import {
   now,
   getActiveAccounts,
 } from './shared';
+import { notifyCookieExpired, notifyBatchCookieExpired } from '../lib/email';
 
 /** 检测单个账号 cookie 是否有效 */
 async function checkAccountCookie(acc: Account): Promise<{ valid: boolean }> {
@@ -54,6 +55,7 @@ export async function runDailyCookieCheck(): Promise<{ checked: number; expired:
 
   let checked = 0;
   let expired = 0;
+  const expiredNames: string[] = [];
   for (const acc of accounts) {
     const { valid } = await checkAccountCookie(acc);
     const status = valid ? 'active' : 'expired';
@@ -62,7 +64,11 @@ export async function runDailyCookieCheck(): Promise<{ checked: number; expired:
       cookie_checked_at: now(),
     });
     checked++;
-    if (!valid) expired++;
+    if (!valid) {
+      expired++;
+      expiredNames.push(acc.nickname);
+      notifyCookieExpired('微博', acc.nickname, '每日3点Cookie巡检检测到过期（被重定向到登录页）');
+    }
     const tag = valid ? '✅ 有效' : '⚠️ 过期';
     console.log(`  [${acc.nickname}] ${tag} → status=${status}`);
     // 请求间错峰，避免被风控
@@ -70,6 +76,9 @@ export async function runDailyCookieCheck(): Promise<{ checked: number; expired:
   }
 
   console.log(`\n✅ 巡检完成: 共 ${checked} 个，过期 ${expired} 个，有效 ${checked - expired} 个`);
+  if (expired >= 3) {
+    await notifyBatchCookieExpired('微博', expiredNames, '每日3点Cookie巡检批量过期');
+  }
   return { checked, expired };
 }
 

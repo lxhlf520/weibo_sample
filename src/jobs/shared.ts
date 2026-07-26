@@ -158,6 +158,9 @@ export async function scrapeRealtimeMids(cookie: string, keyword: string, page: 
     if (!warnedExpired.has(cookieId)) {
       warnedExpired.add(cookieId);
       console.log(`⚠️ Cookie 过期: 请求被重定向到登录页 (keyword=${keyword})，请刷新该账号 cookie`);
+      // 异步发邮件通知（不阻塞采集）
+      const accName = `Cookie片段: ${cookieId}...`;
+      notifyCookieExpired('微博', accName, `采集时被重定向到登录页 (keyword=${keyword})`);
     }
     return [];
   }
@@ -318,6 +321,7 @@ export async function deleteComment(cookie: string, mid: string, cid: string): P
 // ─── 账号读取 ──────────────────────────────────────────────
 
 import { query } from '../lib/db';
+import { notifyCookieExpired } from '../lib/email';
 
 /** 读取所有 active 账号 */
 export async function getActiveAccounts(): Promise<Account[]> {

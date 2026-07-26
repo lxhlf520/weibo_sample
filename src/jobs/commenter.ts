@@ -21,6 +21,7 @@ import {
   getActiveAccounts,
   getCommentableAccounts,
 } from './shared';
+import { notifySystemAlert } from '../lib/email';
 
 interface PostRow {
   id: string;
@@ -45,15 +46,18 @@ interface LogRow {
 
 /**
  * 遍历全部可评论账号发送评论，直到成功或用尽所有账号。
- * @returns { ok, cid, err, usedIdx } 其中 usedIdx 是成功时消耗的最后一个账号位
+ * @returns { ok, cid, err, usedIdx, allSameErr }
+ *   allSameErr: 所有账号均失败且报相同错误码 → 系统性问题（cookie过期/API变更）
  */
 async function tryAllAccounts(
   postId: string,
   content: string,
   accounts: Account[],
   startIdx: number,
-): Promise<{ ok: boolean; cid?: string; err?: string; usedIdx: number }> {
+): Promise<{ ok: boolean; cid?: string; err?: string; usedIdx: number; allSameErr?: boolean }> {
   let lastErr = '';
+  let firstErr = '';
+  let allSame = true;
   for (let attempt = 0; attempt < accounts.length; attempt++) {
     const acc = accounts[(startIdx + attempt) % accounts.length];
     if (attempt > 0) {
@@ -65,8 +69,13 @@ async function tryAllAccounts(
       return { ok: true, cid: r.cid, usedIdx: (startIdx + attempt) % accounts.length };
     }
     lastErr = r.err || 'unknown';
+    if (attempt === 0) {
+      firstErr = lastErr;
+    } else if (lastErr !== firstErr) {
+      allSame = false;
+    }
   }
-  return { ok: false, err: lastErr, usedIdx: startIdx };
+  return { ok: false, err: lastErr, usedIdx: startIdx, allSameErr: allSame };
 }
 
 /** 采集单实验全部帖子的 t0 基线快照 */
@@ -153,6 +162,8 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
   let sent = 0;
   let failed = 0;
   let ai = 0; // 账号轮询指针
+  let consecutiveAllSame = 0; // 连续全账号同错计数（熔断用）
+  let aborted = false;          // 熔断中止标记
 
   for (let i = 0; i < logs.length; i++) {
     const log = logs[i];
@@ -180,59 +191,92 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
       failed++;
       console.log(`    ❌ 全部 ${commentAccounts.length} 个账号均失败(${r.err})`);
 
-      // ── 备选循环回补：不停拿备选帖重试，直到成功或池耗尽 ──
-      let backfilled = false;
-      while (!backfilled && sparePool.length > 0) {
-        const spare = sparePool.shift()!;
-        const spareIdx = sparePool.length; // 剩余备选数
-        console.log(`    🔄 备选回补(${spareIdx}篇剩余): ${spare.mid} [${spare.author_name}]`);
-        try {
-          // 备选帖转为实验帖
-          await updateOne('posts', { id: spare.id }, { is_spare: false, post_group: log.post_group });
-          const spareLog = await insert<{ id: string }>('intervention_logs', {
-            experiment_id: experimentId,
-            post_id: spare.mid,
-            post_url: spare.post_url || null,
-            post_group: log.post_group,
-            comment_template: log.comment_template,
-            comment_content: log.comment_content,
-            status: 'pending',
-          });
-          if (spareLog) {
-            const sr = await tryAllAccounts(spare.mid, log.comment_content, commentAccounts, ai);
-            ai = (sr.usedIdx + 1) % commentAccounts.length;
-            if (sr.ok) {
-              const usedAccount2 = commentAccounts[sr.usedIdx];
-              await updateOne('intervention_logs', { id: spareLog.id }, {
-                status: 'sent', comment_id: sr.cid, sent_at: now(),
-                account_nickname: usedAccount2.nickname,
-                account_uid: usedAccount2.weibo_uid,
-              });
-              sent++;
-              failed--;
-              backfilled = true;
-              console.log(`    ✅ 回补成功 cid=${sr.cid}`);
-            } else {
-              await updateOne('intervention_logs', { id: spareLog.id }, { status: 'failed', error: sr.err });
-              console.log(`    ❌ 回补失败(${sr.err})，继续尝试下一篇备选...`);
-            }
-          }
-        } catch (e: any) {
-          console.log(`    ⚠️ 回补异常: ${e.message}`);
+      // 熔断：所有账号同一错误 → 系统性问题，跳过备选回补
+      if (r.allSameErr) {
+        consecutiveAllSame++;
+        // retcode:-100 是致命错误（cookie 过期），不需等 3 次，立即中止
+        const isFatal = /\bretcode:-100\b/.test(r.err || '');
+        if (isFatal) {
+          console.log(`
+🚨 全账号一致报错"${r.err}"（致命：cookie 过期），立即中止评论发送`);
+          aborted = true;
+          // 异步发邮件通知
+          notifySystemAlert('微博', '评论发送全部账号Cookie过期', `全部 ${commentAccounts.length} 个账号均返回 ${r.err}，已中止发送并保持实验 ready 状态`);
+          break;
         }
-      }
-      if (!backfilled) {
-        console.log(`    🚫 备选池已耗尽，本条评论最终失败`);
+        console.log(`    🔥 熔断: 全账号同错"${r.err}"，跳过备选回补 (连续${consecutiveAllSame}次)`);
+        if (consecutiveAllSame >= 3) {
+          console.log(`
+🚨 连续 ${consecutiveAllSame} 帖全账号同错"${r.err}"，疑似 cookie 全过期/API 变更，中止评论发送`);
+          aborted = true;
+          break;
+        }
+      } else {
+        consecutiveAllSame = 0;
+        // ── 备选循环回补：不停拿备选帖重试，直到成功或池耗尽 ──
+        let backfilled = false;
+        while (!backfilled && sparePool.length > 0) {
+          const spare = sparePool.shift()!;
+          const spareIdx = sparePool.length;
+          console.log(`    🔄 备选回补(${spareIdx}篇剩余): ${spare.mid} [${spare.author_name}]`);
+          try {
+            await updateOne('posts', { id: spare.id }, { is_spare: false, post_group: log.post_group });
+            const spareLog = await insert<{ id: string }>('intervention_logs', {
+              experiment_id: experimentId,
+              post_id: spare.mid,
+              post_url: spare.post_url || null,
+              post_group: log.post_group,
+              comment_template: log.comment_template,
+              comment_content: log.comment_content,
+              status: 'pending',
+            });
+            if (spareLog) {
+              const sr = await tryAllAccounts(spare.mid, log.comment_content, commentAccounts, ai);
+              ai = (sr.usedIdx + 1) % commentAccounts.length;
+              if (sr.ok) {
+                const usedAccount2 = commentAccounts[sr.usedIdx];
+                await updateOne('intervention_logs', { id: spareLog.id }, {
+                  status: 'sent', comment_id: sr.cid, sent_at: now(),
+                  account_nickname: usedAccount2.nickname,
+                  account_uid: usedAccount2.weibo_uid,
+                });
+                sent++;
+                failed--;
+                backfilled = true;
+                console.log(`    ✅ 回补成功 cid=${sr.cid}`);
+              } else {
+                await updateOne('intervention_logs', { id: spareLog.id }, { status: 'failed', error: sr.err });
+                // 备选也全账号同错 → 系统性故障，停止回补
+                if (sr.allSameErr) {
+                  console.log(`    🔥 备选回补也全账号同错"${sr.err}"，停止回补循环`);
+                  break;
+                }
+                console.log(`    ❌ 回补失败(${sr.err})，继续尝试下一篇备选...`);
+              }
+            }
+          } catch (e: any) {
+            console.log(`    ⚠️ 回补异常: ${e.message}`);
+          }
+        }
+        if (!backfilled) {
+          console.log(`    🚫 备选池已耗尽，本条评论最终失败`);
+        }
       }
     }
     await sleep(3000 + Math.random() * 5000);
   }
 
   // ── 更新实验状态 ──
-  await updateOne('experiment_runs', { id: experimentId }, { status: 'running' });
+  if (!aborted) {
+    await updateOne('experiment_runs', { id: experimentId }, { status: 'running' });
+  }
 
-  console.log(`\n✅ 评论发送完成: 成功 ${sent} / 失败 ${failed}`);
-  console.log(`   实验 ${experimentId} → status=running，t0_at=${t0at}`);
+  console.log(`\n${aborted ? '⚠️ 评论发送中止（熔断）' : '✅ 评论发送完成'}: 成功 ${sent} / 失败 ${failed}`);
+  if (aborted) {
+    console.log(`   实验 ${experimentId} status 保持 ready（恢复后重试），t0_at=${t0at}`);
+  } else {
+    console.log(`   实验 ${experimentId} → status=running，t0_at=${t0at}`);
+  }
   return { sent, failed };
 }
 

@@ -29,6 +29,10 @@ export default function HomePage() {
 
   // 仪表盘实时数据
   const [stats, setStats] = useState({ running: 0, total: 0, activeAccounts: 0, totalAccounts: 0, usedComments: 0, maxComments: 0, commentableAccounts: 0 });
+
+  // 测试按钮状态
+  const [testCollectResult, setTestCollectResult] = useState<{ loading: boolean; data?: any; error?: string }>({ loading: false });
+  const [testCommentResult, setTestCommentResult] = useState<{ loading: boolean; data?: any; error?: string }>({ loading: false });
   useEffect(() => {
     if (!isAuthenticated) return;
     Promise.all([
@@ -49,6 +53,30 @@ export default function HomePage() {
       });
     }).catch(() => {});
   }, [isAuthenticated, token]);
+
+  // 测试采集
+  const handleTestCollect = async () => {
+    setTestCollectResult({ loading: true });
+    try {
+      const resp = await fetch('/api/test/collect', { method: 'POST' });
+      const data = await resp.json();
+      setTestCollectResult({ loading: false, data });
+    } catch (e: any) {
+      setTestCollectResult({ loading: false, error: e.message });
+    }
+  };
+
+  // 测试评论
+  const handleTestComment = async () => {
+    setTestCommentResult({ loading: true });
+    try {
+      const resp = await fetch('/api/test/comment', { method: 'POST' });
+      const data = await resp.json();
+      setTestCommentResult({ loading: false, data });
+    } catch (e: any) {
+      setTestCommentResult({ loading: false, error: e.message });
+    }
+  };
 
   // Token 登录
   const handleTokenLogin = async () => {
@@ -186,6 +214,59 @@ export default function HomePage() {
             >
               查看实验数据 → 四张固定数据表
             </button>
+          </div>
+
+          {/* 测试工具 */}
+          <h3 className="text-sm font-semibold text-gray-500 mt-6 mb-3">🔧 功能测试</h3>
+          <div className="space-y-2">
+            <button
+              onClick={handleTestCollect}
+              disabled={testCollectResult.loading}
+              className="w-full text-left px-4 py-2.5 bg-yellow-50 text-yellow-700 rounded-lg hover:bg-yellow-100 transition disabled:opacity-50 text-sm"
+            >
+              {testCollectResult.loading ? '⏳ 测试中...' : '🧪 测试采集 — 搜索"日常"并筛选'}
+            </button>
+            {testCollectResult.data && (
+              <div className={`mt-1 p-2 rounded text-xs ${testCollectResult.data.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                <p className="font-medium">{testCollectResult.data.success ? '✅' : '❌'} 账号: {testCollectResult.data.account} | {testCollectResult.data.elapsed}ms</p>
+                {testCollectResult.data.midsFound !== undefined && (
+                  <p>搜索到 {testCollectResult.data.midsFound} 条mid，筛选 {testCollectResult.data.postsScreened} 条，通过 {testCollectResult.data.postsPassed} 条</p>
+                )}
+                {testCollectResult.data.error && <p className="text-red-600">{testCollectResult.data.error}</p>}
+                {testCollectResult.data.log && (
+                  <details className="mt-1"><summary className="cursor-pointer">详细日志</summary>
+                    {testCollectResult.data.log.map((l: string, i: number) => <p key={i} className="whitespace-pre-wrap">{l}</p>)}
+                  </details>
+                )}
+              </div>
+            )}
+            {testCollectResult.error && (
+              <div className="mt-1 p-2 rounded text-xs bg-red-50 text-red-700">{testCollectResult.error}</div>
+            )}
+
+            <button
+              onClick={handleTestComment}
+              disabled={testCommentResult.loading}
+              className="w-full text-left px-4 py-2.5 bg-orange-50 text-orange-700 rounded-lg hover:bg-orange-100 transition disabled:opacity-50 text-sm"
+            >
+              {testCommentResult.loading ? '⏳ 测试中...' : '💬 测试评论 — 发一条并立即删除'}
+            </button>
+            {testCommentResult.data && (
+              <div className={`mt-1 p-2 rounded text-xs ${testCommentResult.data.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                <p className="font-medium">{testCommentResult.data.success ? '✅' : '❌'} 账号: {testCommentResult.data.account} | {testCommentResult.data.elapsed}ms</p>
+                {testCommentResult.data.mid && <p>目标微博: {testCommentResult.data.mid}</p>}
+                {testCommentResult.data.commentId && <p>评论ID: {testCommentResult.data.commentId} {testCommentResult.data.deleted ? '(已删除)' : ''}</p>}
+                {testCommentResult.data.error && <p className="text-red-600">{testCommentResult.data.error}</p>}
+                {testCommentResult.data.log && (
+                  <details className="mt-1"><summary className="cursor-pointer">详细日志</summary>
+                    {testCommentResult.data.log.map((l: string, i: number) => <p key={i} className="whitespace-pre-wrap">{l}</p>)}
+                  </details>
+                )}
+              </div>
+            )}
+            {testCommentResult.error && (
+              <div className="mt-1 p-2 rounded text-xs bg-red-50 text-red-700">{testCommentResult.error}</div>
+            )}
           </div>
         </div>
 
