@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
 
         if (post) {
           await insert('intervention_logs', {
-            experiment_id: experimentId, post_id: post.id,
+            experiment_id: experimentId, post_id: item.post.postId,
             post_url: item.post.postUrl,
             post_group: item.group, comment_template: item.templateId ? String(item.templateId) : null,
             comment_content: item.commentContent, status: 'pending',

@@ -6,6 +6,8 @@
 const PC_UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+import { apiLog } from './logger';
+
 export interface WeiboPost {
   id: string;
   idstr: string;
@@ -95,7 +97,8 @@ export async function searchPosts(
   });
 
   if (!resp.ok) {
-    throw new Error(`搜索帖子失败: HTTP ${resp.status}`);
+    apiLog.error(`searchPosts HTTP ${resp.status} keyword="${keyword}" page=${page}`);
+    return { posts: [], total: 0 };
   }
 
   const data = await resp.json();
@@ -187,7 +190,8 @@ export async function getComments(
   );
 
   if (!resp.ok) {
-    throw new Error(`获取评论失败: HTTP ${resp.status}`);
+    apiLog.error(`getComments HTTP ${resp.status} postId=${postId}`);
+    return { comments: [], max_id: null, total: 0 };
   }
 
   const data = await resp.json();
@@ -260,6 +264,7 @@ export async function postComment(
     const errMsg = data.msg || data.error || `评论发送失败 (retcode: ${data.ok})`;
     return { success: false, error: errMsg };
   } catch (err) {
+    apiLog.error(`postComment 网络错误 postId=${postId}`, err);
     return { success: false, error: `网络错误: ${String(err)}` };
   }
 }

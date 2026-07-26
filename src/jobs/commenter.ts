@@ -80,7 +80,7 @@ async function captureBaseline(experimentId: string, accounts: Account[]): Promi
     if (md && md.ok !== 0) {
       await insert('post_snapshots', {
         experiment_id: experimentId,
-        post_id: String(p.id),
+        post_id: p.mid,
         mid: p.mid,
         time_point: 't0',
         comments_count: md.comments_count || 0,
@@ -156,7 +156,7 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
 
   for (let i = 0; i < logs.length; i++) {
     const log = logs[i];
-    const post = await maybeOne<PostRow>('posts', { id: log.post_id });
+    const post = await maybeOne<PostRow>('posts', { mid: log.post_id });
     if (!post) {
       failed++;
       continue;
@@ -191,7 +191,7 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
           await updateOne('posts', { id: spare.id }, { is_spare: false, post_group: log.post_group });
           const spareLog = await insert<{ id: string }>('intervention_logs', {
             experiment_id: experimentId,
-            post_id: String(spare.id),
+            post_id: spare.mid,
             post_url: spare.post_url || null,
             post_group: log.post_group,
             comment_template: log.comment_template,

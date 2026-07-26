@@ -57,10 +57,10 @@ async function collectPostComments(
   if (statusRaw) {
     await upsert(
       'post_detail',
-      { experiment_id: experimentId, post_id: post.id },
+      { experiment_id: experimentId, post_id: post.mid },
       {
         experiment_id: experimentId,
-        post_id: post.id,
+        post_id: post.mid,
         mid: post.mid,
         post_url: post.post_url,
         raw_response: JSON.stringify(statusRaw),
@@ -76,10 +76,10 @@ async function collectPostComments(
   if (comments.length > 0) {
     await upsert(
       'post_comment_meta',
-      { experiment_id: experimentId, post_id: post.id },
+      { experiment_id: experimentId, post_id: post.mid },
       {
         experiment_id: experimentId,
-        post_id: post.id,
+        post_id: post.mid,
         mid: post.mid,
         post_url: post.post_url,
         raw_response: JSON.stringify(comments),
@@ -97,7 +97,7 @@ async function collectPostComments(
       { experiment_id: experimentId, comment_id: c.idstr },
       {
         experiment_id: experimentId,
-        post_id: post.id,
+        post_id: post.mid,
         mid: post.mid,
         comment_id: c.idstr,
         parent_comment_id: getParentCommentId(c),
@@ -168,7 +168,7 @@ async function collectExperiment(
     const post = posts[i];
 
     // retryOnly 模式下跳过不在错误列表中的帖子
-    if (targetPostIds && !targetPostIds.has(post.id) && !targetPostIds.has(post.mid)) {
+    if (targetPostIds && !targetPostIds.has(post.mid)) {
       continue;
     }
 
@@ -178,22 +178,22 @@ async function collectExperiment(
       totalComments += comments;
       totalUsers += users;
       // 采集成功，清除之前的失败记录
-      await deleteOne('collection_errors', { experiment_id: experimentId, post_id: post.id });
+      await deleteOne('collection_errors', { experiment_id: experimentId, post_id: post.mid });
     } catch (e: any) {
       console.log(`    ⚠️ ${post.mid} 评论采集失败: ${e.message}`);
       // 记录失败，供后续重试
       const { rows: existing } = await query<{ retry_count: number }>(
         'collection_errors',
-        { experiment_id: experimentId, post_id: post.id },
+        { experiment_id: experimentId, post_id: post.mid },
       );
       const retryCount = existing.length > 0 ? (existing[0].retry_count || 0) + 1 : 0;
 
       await upsert(
         'collection_errors',
-        { experiment_id: experimentId, post_id: post.id },
+        { experiment_id: experimentId, post_id: post.mid },
         {
           experiment_id: experimentId,
-          post_id: post.id,
+          post_id: post.mid,
           mid: post.mid,
           error_msg: (e.message || String(e)).slice(0, 200),
           retry_count: retryCount,

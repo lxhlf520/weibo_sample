@@ -32,6 +32,7 @@ import {
   screenStatus,
   getActiveAccounts,
 } from './shared';
+import { collectorLog } from '../lib/logger';
 
 const POOL = 'candidate_pool'; // 跨批累计的合格帖候选池集合
 
@@ -96,14 +97,18 @@ export async function runCollectBatch(): Promise<{ experimentId: string; qualifi
   // ── 抓取本批候选 mid（排除历史已见）──
   const seen = new Set<string>(exp.seen_mids || []);
   const batchMids = new Set<string>();
+  let fetchedTotal = 0;     // 诊断：scrapeRealtimeMids 抓取总数
+  let apiErrors = 0;        // 诊断：API 调用失败次数
   outer: for (let page = 1; page <= MAX_PAGES_PER_KEYWORD; page++) {
     for (const kw of SEARCH_KEYWORDS) {
       const ci = batchMids.size % accounts.length;
       try {
         const mids = await scrapeRealtimeMids(accounts[ci].cookie, kw, page);
+        fetchedTotal += mids.length;
         for (const m of mids) if (!seen.has(m)) batchMids.add(m);
-      } catch {
-        /* 单次失败跳过 */
+      } catch (e) {
+        apiErrors++;
+        collectorLog.error(`scrapeRealtimeMids失败 keyword="${kw}" page=${page} account=${accounts[ci].nickname}`, e);
       }
       await sleep(500 + Math.random() * 700);
       if (batchMids.size >= CANDIDATE_BATCH) break outer;
@@ -116,6 +121,7 @@ export async function runCollectBatch(): Promise<{ experimentId: string; qualifi
   // ── 逐条筛选 → 按作者去重 upsert 到池 ──
   const cutoff = Date.now() - 12 * 3600 * 1000;
   let added = 0;
+  let filteredScreen = 0;   // 诊断：screenStatus 过滤
   for (let i = 0; i < mids.length; i++) {
     const mid = mids[i];
     seen.add(mid);
@@ -138,6 +144,8 @@ export async function runCollectBatch(): Promise<{ experimentId: string; qualifi
         published_at: sp.publishedAt,
       });
       if (before === 0) added++;
+    } else {
+      filteredScreen++;
     }
     await sleep(300 + Math.random() * 600);
     qualified = await count(POOL, { experiment_id: experimentId });
@@ -157,6 +165,9 @@ export async function runCollectBatch(): Promise<{ experimentId: string; qualifi
   });
 
   console.log(`\n✅ 本批完成: 新增合格 ${added} 篇，池累计 ${qualified}/${TARGET_QUALIFIED}${poolFull ? '（已达标）' : ''}`);
+  collectorLog.log(
+    `诊断: 抓取mid=${fetchedTotal} 去重=${mids.length} 筛选通过=${added} 过滤=${filteredScreen} API错误=${apiErrors}`
+  );
   return { experimentId, qualified, poolFull };
 }
 
@@ -244,7 +255,7 @@ export async function finalizeExperiment(): Promise<{ experimentId: string } | n
     if (post && item.group !== 'control') {
       await insert('intervention_logs', {
         experiment_id: experimentId,
-        post_id: String(post.id),
+        post_id: p.postId,
         post_url: p.postUrl,
         post_group: item.group,
         comment_template: (item as any).templateId ? String((item as any).templateId) : null,

@@ -38,7 +38,7 @@ async function capturePoint(experimentId: string, point: string, accounts: Accou
     if (md && md.ok !== 0) {
       await insert('post_snapshots', {
         experiment_id: experimentId,
-        post_id: String(p.id),
+        post_id: p.mid,
         mid: p.mid,
         time_point: point,
         comments_count: md.comments_count || 0,

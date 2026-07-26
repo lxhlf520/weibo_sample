@@ -25,6 +25,7 @@ import { ensureTemplates } from '../lib/seed-templates';
 import { runStartupMigration } from '../lib/startup-migration';
 import { closeDb } from '../lib/db';
 import { COLLECT_HOURS, ts } from './shared';
+import { schedulerLog } from '../lib/logger';
 
 const COMMENT_HOUR = 20; // 20:00 批次采完后 finalize + 评论
 const CHECK_HOUR = 19;
@@ -50,7 +51,7 @@ async function guarded(name: string, fn: () => Promise<unknown>): Promise<void> 
   try {
     await fn();
   } catch (e) {
-    console.error(`[调度] ${name} 异常  [${ts()}]:`, e);
+    schedulerLog.error(`[调度] ${name} 异常`, e);
   } finally {
     busy = false;
   }
@@ -95,7 +96,6 @@ async function heartbeat(): Promise<void> {
       checkedCookieToday = today;
       await runDailyCookieCheck();
     });
-    return;
   }
 
   // 19:30 评论权限检测（每天一次）
@@ -104,20 +104,24 @@ async function heartbeat(): Promise<void> {
       checkedCommentPermToday = today;
       await runCommentPermissionCheck();
     });
-    return;
   }
 
   // 采集/评论整点触发（当天每个整点仅一次），在整点后 MONITOR_INTERVAL_MIN 分钟窗口内
   if (minute < MONITOR_INTERVAL_MIN && COLLECT_HOURS.includes(hour)) {
     await guarded(`${hour}点采集批次`, async () => {
       if (!claimHour(today, hour)) return;
-      if (hour === COMMENT_HOUR) {
-        await runCommentPipeline();
-      } else {
-        await runCollectBatch();
+      try {
+        if (hour === COMMENT_HOUR) {
+          await runCommentPipeline();
+        } else {
+          await runCollectBatch();
+        }
+      } catch (e) {
+        // 任务失败 → 回滚 claim，允许下次心跳重试
+        firedHours.get(today)?.delete(hour);
+        throw e;
       }
     });
-    return;
   }
 
   // 每 30 分钟监控 tick
@@ -175,12 +179,12 @@ function main(): void {
 
   // 每分钟心跳
   setInterval(() => {
-    heartbeat().catch((e) => console.error('[调度] 心跳异常:', e));
+    heartbeat().catch((e) => schedulerLog.error('[调度] 心跳异常', e));
   }, 60_000);
 }
 
 async function shutdown(): Promise<void> {
-  console.log(`\n[调度] 收到退出信号，关闭连接...  [${ts()}]`);
+  schedulerLog.log('收到退出信号，关闭连接...');
   try {
     await closeDb();
   } catch {
