@@ -19,6 +19,11 @@ interface WeiboAccount {
   cookie_checked_at?: string;
 }
 
+interface AccountTestState {
+  collect: { loading: boolean; data?: any; error?: string };
+  comment: { loading: boolean; data?: any; error?: string };
+}
+
 export default function AccountsPage() {
   const { token, isAuthenticated } = useAuth();
   const [accounts, setAccounts] = useState<WeiboAccount[]>([]);
@@ -32,6 +37,9 @@ export default function AccountsPage() {
   const [qrQrid, setQrQrid] = useState('');
   const [qrStatus, setQrStatus] = useState<string>('idle');
   const [qrMessage, setQrMessage] = useState('');
+
+  // 各账号测试状态
+  const [testStates, setTestStates] = useState<Record<number, AccountTestState>>({});
 
   const fetchAccounts = useCallback(async () => {
     try {
@@ -162,6 +170,38 @@ export default function AccountsPage() {
     return new Date(iso).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
   };
 
+  // 测试某账号的采集
+  const handleTestCollect = async (accId: number) => {
+    setTestStates(prev => ({ ...prev, [accId]: { ...prev[accId], collect: { loading: true } } }));
+    try {
+      const resp = await fetch('/api/accounts/test-collect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ accountId: accId }),
+      });
+      const data = await resp.json();
+      setTestStates(prev => ({ ...prev, [accId]: { ...prev[accId], collect: { loading: false, data } } }));
+    } catch (e: any) {
+      setTestStates(prev => ({ ...prev, [accId]: { ...prev[accId], collect: { loading: false, error: e.message } } }));
+    }
+  };
+
+  // 测试某账号的评论
+  const handleTestComment = async (accId: number) => {
+    setTestStates(prev => ({ ...prev, [accId]: { ...prev[accId], comment: { loading: true } } }));
+    try {
+      const resp = await fetch('/api/accounts/test-comment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ accountId: accId }),
+      });
+      const data = await resp.json();
+      setTestStates(prev => ({ ...prev, [accId]: { ...prev[accId], comment: { loading: false, data } } }));
+    } catch (e: any) {
+      setTestStates(prev => ({ ...prev, [accId]: { ...prev[accId], comment: { loading: false, error: e.message } } }));
+    }
+  };
+
   if (!isAuthenticated) return null;
 
   return (
@@ -239,12 +279,69 @@ export default function AccountsPage() {
                   Cookie有效性: {formatTime(acc.cookie_checked_at)}
                 </div>
               )}
-              <button
-                onClick={() => deleteAccount(acc.id)}
-                className="text-xs text-red-400 hover:text-red-600"
-              >
-                删除
-              </button>
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleTestCollect(acc.id)}
+                    disabled={testStates[acc.id]?.collect?.loading}
+                    className="text-xs px-2 py-1 rounded bg-yellow-50 text-yellow-600 hover:bg-yellow-100 transition disabled:opacity-50"
+                    title="测试此账号的采集链路（搜索+筛选）"
+                  >
+                    {testStates[acc.id]?.collect?.loading ? '⏳' : '🧪'} 测试采集
+                  </button>
+                  <button
+                    onClick={() => handleTestComment(acc.id)}
+                    disabled={testStates[acc.id]?.comment?.loading}
+                    className="text-xs px-2 py-1 rounded bg-orange-50 text-orange-600 hover:bg-orange-100 transition disabled:opacity-50"
+                    title="测试此账号的评论链路（发一条测试评论并立即删除）"
+                  >
+                    {testStates[acc.id]?.comment?.loading ? '⏳' : '💬'} 测试评论
+                  </button>
+                </div>
+                <button
+                  onClick={() => deleteAccount(acc.id)}
+                  className="text-xs text-red-400 hover:text-red-600"
+                >
+                  删除
+                </button>
+              </div>
+
+              {/* 测试采集结果 */}
+              {testStates[acc.id]?.collect?.data && (
+                <div className={`mt-2 p-2 rounded text-xs ${testStates[acc.id]!.collect.data!.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  <p className="font-medium">{testStates[acc.id]!.collect.data!.success ? '✅' : '❌'} 采集测试 | {testStates[acc.id]!.collect.data!.elapsed}ms</p>
+                  {testStates[acc.id]!.collect.data!.midsFound !== undefined && (
+                    <p>搜索到 {testStates[acc.id]!.collect.data!.midsFound} 条mid，筛选 {testStates[acc.id]!.collect.data!.postsScreened} 条，通过 {testStates[acc.id]!.collect.data!.postsPassed} 条</p>
+                  )}
+                  {testStates[acc.id]!.collect.data!.error && <p className="text-red-600">{testStates[acc.id]!.collect.data!.error}</p>}
+                  {testStates[acc.id]!.collect.data!.log?.length > 0 && (
+                    <details className="mt-1"><summary className="cursor-pointer">详细日志</summary>
+                      {testStates[acc.id]!.collect.data!.log.map((l: string, i: number) => <p key={i} className="whitespace-pre-wrap">{l}</p>)}
+                    </details>
+                  )}
+                </div>
+              )}
+              {testStates[acc.id]?.collect?.error && (
+                <div className="mt-2 p-2 rounded text-xs bg-red-50 text-red-700">{testStates[acc.id]!.collect.error}</div>
+              )}
+
+              {/* 测试评论结果 */}
+              {testStates[acc.id]?.comment?.data && (
+                <div className={`mt-2 p-2 rounded text-xs ${testStates[acc.id]!.comment.data!.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  <p className="font-medium">{testStates[acc.id]!.comment.data!.success ? '✅' : '❌'} 评论测试 | {testStates[acc.id]!.comment.data!.elapsed}ms</p>
+                  {testStates[acc.id]!.comment.data!.mid && <p>目标微博: {testStates[acc.id]!.comment.data!.mid}</p>}
+                  {testStates[acc.id]!.comment.data!.commentId && <p>评论ID: {testStates[acc.id]!.comment.data!.commentId} {testStates[acc.id]!.comment.data!.deleted ? '(已删除)' : ''}</p>}
+                  {testStates[acc.id]!.comment.data!.error && <p className="text-red-600">{testStates[acc.id]!.comment.data!.error}</p>}
+                  {testStates[acc.id]!.comment.data!.log?.length > 0 && (
+                    <details className="mt-1"><summary className="cursor-pointer">详细日志</summary>
+                      {testStates[acc.id]!.comment.data!.log.map((l: string, i: number) => <p key={i} className="whitespace-pre-wrap">{l}</p>)}
+                    </details>
+                  )}
+                </div>
+              )}
+              {testStates[acc.id]?.comment?.error && (
+                <div className="mt-2 p-2 rounded text-xs bg-red-50 text-red-700">{testStates[acc.id]!.comment.error}</div>
+              )}
             </div>
           ))}
         </div>
