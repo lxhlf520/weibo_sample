@@ -173,8 +173,7 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
   let sent = 0;
   let failed = 0;
   let ai = 0; // 账号轮询指针
-  let consecutiveAllSame = 0; // 连续全账号同错计数（熔断用）
-  let aborted = false;          // 熔断中止标记
+  let aborted = false;          // 致命错误中止标记
 
   for (let i = 0; i < logs.length; i++) {
     const log = logs[i];
@@ -202,34 +201,22 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
       failed++;
       console.log(`    ❌ 全部 ${commentAccounts.length} 个账号均失败(${r.err})`);
 
-      // 熔断：所有账号同一错误 → 系统性问题，跳过备选回补
-      if (r.allSameErr) {
-        consecutiveAllSame++;
-        // retcode:-100 是致命错误（cookie 过期），不需等 3 次，立即中止
-        const isFatal = /\bretcode:-100\b/.test(r.err || '');
-        if (isFatal) {
-          console.log(`
+      // 致命错误立即中止：retcode:-100 = cookie 过期（系统性问题，再试无意义）
+      if (r.allSameErr && /\bretcode:-100\b/.test(r.err || '')) {
+        console.log(`
 🚨 全账号一致报错"${r.err}"（致命：cookie 过期），立即中止评论发送`);
-          aborted = true;
-          // 异步发邮件通知
-          notifySystemAlert('微博', '评论发送全部账号Cookie过期', `全部 ${commentAccounts.length} 个账号均返回 ${r.err}，已中止发送并保持实验 ready 状态`);
-          break;
-        }
-        console.log(`    🔥 熔断: 全账号同错"${r.err}"，跳过备选回补 (连续${consecutiveAllSame}次)`);
-        if (consecutiveAllSame >= 3) {
-          console.log(`
-🚨 连续 ${consecutiveAllSame} 帖全账号同错"${r.err}"，疑似 cookie 全过期/API 变更，中止评论发送`);
-          aborted = true;
-          break;
-        }
-      } else {
-        consecutiveAllSame = 0;
-        // ── 备选循环回补：不停拿备选帖重试，直到成功或池耗尽 ──
-        let backfilled = false;
-        while (!backfilled && sparePool.length > 0) {
-          const spare = sparePool.shift()!;
-          const spareIdx = sparePool.length;
-          console.log(`    🔄 备选回补(${spareIdx}篇剩余): ${spare.mid} [${spare.author_name}]`);
+        aborted = true;
+        notifySystemAlert('微博', '评论发送全部账号Cookie过期', `全部 ${commentAccounts.length} 个账号均返回 ${r.err}，已中止发送并保持实验 ready 状态`);
+        break;
+      }
+
+      // ── 备选循环回补：不停拿备选帖重试，直到成功或池耗尽 ──
+      // 注意：allSameErr 也做回补 —— 帖子不让评论是正常现象，换帖即可
+      let backfilled = false;
+      while (!backfilled && sparePool.length > 0) {
+        const spare = sparePool.shift()!;
+        const spareIdx = sparePool.length;
+        console.log(`    🔄 备选回补(${spareIdx}篇剩余): ${spare.mid} [${spare.author_name}]`);
           try {
             await updateOne('posts', { id: spare.id }, { is_spare: false, post_group: log.post_group });
             const spareLog = await insert<{ id: string }>('intervention_logs', {
@@ -272,7 +259,6 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
         if (!backfilled) {
           console.log(`    🚫 备选池已耗尽，本条评论最终失败`);
         }
-      }
     }
     await sleep(3000 + Math.random() * 5000);
   }
