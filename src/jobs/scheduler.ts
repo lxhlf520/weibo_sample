@@ -1,12 +1,14 @@
 /**
  * 正式实验 - 常驻调度器（Node 原生定时，零外部依赖）
  * ============================================================================
- * 采集分批建池策略：
- *   16:00 / 18:00 / 20:00  runCollectBatch  每 2 小时采一批 2000 候选追加池，
- *                          跨批筛选累计；合格 ≥150 即停后续批次。
- *   20:00 批次采完后        finalizeExperiment 从池选 90 实验帖建实验
- *                          → runDailyComment 采 t0 基线 + 发评论
- *   每 30 分钟              runMonitorTick  扫描 running 实验补采到点快照
+ * 实验生命周期：
+ *   14:00                  getOrCreateCollectingExp  提前 2h 创建当天实验记录
+ *   15:00                  runDailyCookieCheck       提前 1h 检测账号 cookie 有效性
+ *   16:00 / 18:00 / 20:00  runCollectBatch            每 2 小时采一批 2000 候选追加池，
+ *                          跨批筛选累计；合格 ≥90 即停后续批次。
+ *   20:00 批次采完后        finalizeExperiment        从池选 90 实验帖建实验
+ *                          → runDailyComment          采 t0 基线 + 发评论
+ *   每 30 分钟              runMonitorTick            扫描 running 实验补采到点快照
  *
  * 用每分钟一次的 setInterval 心跳判断整点触发（当天每个整点仅一次）。
  * 各任务 try/catch 隔离，串行不重叠。
@@ -14,7 +16,7 @@
  * 启动：npx tsx src/jobs/scheduler.ts
  */
 
-import { runCollectBatch, finalizeExperiment } from './collector';
+import { runCollectBatch, finalizeExperiment, getOrCreateCollectingExp } from './collector';
 import { runDailyComment } from './commenter';
 import { runMonitorTick } from './monitor';
 import { runCommentPermissionCheck } from './checker';
@@ -27,6 +29,8 @@ import { closeDb } from '../lib/db';
 import { COLLECT_HOURS, ts } from './shared';
 import { schedulerLog } from '../lib/logger';
 
+const CREATE_HOUR = 14; // 14:00 提前 2h 创建当天实验
+const COOKIE_TEST_HOUR = 15; // 15:00 提前 1h 检测账号 cookie 有效性
 const COMMENT_HOUR = 20; // 20:00 批次采完后 finalize + 评论
 const CHECK_HOUR = 19;
 const CHECK_MINUTE = 30; // 19:30 评论权限检测
@@ -40,6 +44,8 @@ const firedHours = new Map<string, Set<number>>(); // 日期 → 已触发的整
 let lastMonitorMinute = -1;
 let checkedCommentPermToday = ''; // 当天已检测日期字符串
 let checkedCookieToday = ''; // 当天已 cookie 巡检日期字符串
+let createdExperimentToday = ''; // 当天已创建实验日期字符串
+let checkedCookieBeforeCollectToday = ''; // 当天采集前已 cookie 检测日期字符串
 let lastAnalyzerMinute = -1;
 
 async function guarded(name: string, fn: () => Promise<unknown>): Promise<void> {
@@ -89,6 +95,23 @@ async function heartbeat(): Promise<void> {
   const today = dateStr(nowDate);
   const hour = nowDate.getHours();
   const minute = nowDate.getMinutes();
+
+  // 14:00 提前 2h 创建当天实验（每天一次，整点后 30min 窗口内）
+  if (hour === CREATE_HOUR && minute < MONITOR_INTERVAL_MIN && today !== createdExperimentToday) {
+    await guarded('14:00 创建实验', async () => {
+      createdExperimentToday = today;
+      const exp = await getOrCreateCollectingExp();
+      console.log(exp ? `✅ 当天实验已就绪 id=${exp.id}` : '⚠️ 当天实验已存在或创建失败');
+    });
+  }
+
+  // 15:00 提前 1h 检测账号 cookie 有效性（每天一次）
+  if (hour === COOKIE_TEST_HOUR && minute === 0 && today !== checkedCookieBeforeCollectToday) {
+    await guarded('15:00 Cookie检测', async () => {
+      checkedCookieBeforeCollectToday = today;
+      await runDailyCookieCheck();
+    });
+  }
 
   // 3:00 每日 cookie 有效性巡检（每天一次）
   if (hour === COOKIE_CHECK_HOUR && minute === 0 && today !== checkedCookieToday) {
@@ -153,7 +176,7 @@ async function heartbeat(): Promise<void> {
 function main(): void {
   console.log(`${'='.repeat(60)}`);
   console.log(`微博正式实验调度器启动  [${ts()}]`);
-  console.log(`  采集批次: ${COLLECT_HOURS.join('/')}点 | ${COOKIE_CHECK_HOUR}:00 Cookie巡检 | ${CHECK_HOUR}:${CHECK_MINUTE} 权限检测 | ${COMMENT_HOUR}点批后选帖+评论 | 每${MONITOR_INTERVAL_MIN}min 监控`);
+  console.log(`  实验创建: ${CREATE_HOUR}点 | Cookie预检: ${COOKIE_TEST_HOUR}点 | 采集批次: ${COLLECT_HOURS.join('/')}点 | ${COOKIE_CHECK_HOUR}:00 Cookie巡检 | ${CHECK_HOUR}:${CHECK_MINUTE} 权限检测 | ${COMMENT_HOUR}点批后选帖+评论 | 每${MONITOR_INTERVAL_MIN}min 监控`);
   console.log(`  背压重试: 奇数小时 30-59分 | 模板同步+数据迁移: 启动时自动`);
   console.log(`${'='.repeat(60)}`);
 

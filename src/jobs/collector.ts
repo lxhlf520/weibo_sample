@@ -37,7 +37,7 @@ import { collectorLog } from '../lib/logger';
 const POOL = 'candidate_pool'; // 跨批累计的合格帖候选池集合
 
 /** 找/建当天处于采集期的实验；若当天已 finalize（非 collecting）返回 null 表示无需采集 */
-async function getOrCreateCollectingExp(): Promise<{ id: string; pool_full?: boolean; batch_count?: number; seen_mids?: string[] } | null> {
+export async function getOrCreateCollectingExp(): Promise<{ id: string; pool_full?: boolean; batch_count?: number; seen_mids?: string[] } | null> {
   const today = new Date().toISOString().split('T')[0];
   const existing = await maybeOne<{ id: string; status: string; pool_full?: boolean; batch_count?: number; seen_mids?: string[] }>(
     'experiment_runs',
