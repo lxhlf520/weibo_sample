@@ -260,7 +260,7 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
           console.log(`    🚫 备选池已耗尽，本条评论最终失败`);
         }
     }
-    await sleep(3000 + Math.random() * 5000);
+    await sleep(25000 + Math.random() * 10000); // 25-35s 间隔，90帖约50分钟，分散在8-9点窗口内
   }
 
   // ── 更新实验状态 ──
