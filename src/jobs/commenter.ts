@@ -47,9 +47,9 @@ interface LogRow {
 }
 
 /**
- * 遍历全部可评论账号发送评论，直到成功或用尽所有账号。
+ * 轮询账号尝试对单帖发评论，最多试 MAX_RETRY 个账号。
+ * 同一错误连续失败 → 帖子本身不可评论，提前放弃换帖。
  * @returns { ok, cid, err, usedIdx, allSameErr }
- *   allSameErr: 所有账号均失败且报相同错误码 → 系统性问题（cookie过期/API变更）
  */
 async function tryAllAccounts(
   postId: string,
@@ -57,13 +57,15 @@ async function tryAllAccounts(
   accounts: Account[],
   startIdx: number,
 ): Promise<{ ok: boolean; cid?: string; err?: string; usedIdx: number; allSameErr?: boolean }> {
+  const MAX_RETRY = 3; // 最多试 3 个账号，同一错误连续失败就是帖子问题
   let lastErr = '';
   let firstErr = '';
   let allSame = true;
-  for (let attempt = 0; attempt < accounts.length; attempt++) {
+  const limit = Math.min(accounts.length, MAX_RETRY);
+  for (let attempt = 0; attempt < limit; attempt++) {
     const acc = accounts[(startIdx + attempt) % accounts.length];
     if (attempt > 0) {
-      console.log(`    ⚠️ 失败(${lastErr})，换 @${acc.nickname} 重试 (${attempt + 1}/${accounts.length})`);
+      console.log(`    ⚠️ 失败(${lastErr})，换 @${acc.nickname} 重试 (${attempt + 1}/${limit})`);
       await sleep(2000 + Math.random() * 3000);
     }
     const r = await sendOneComment(postId, content, acc.cookie);
@@ -199,14 +201,14 @@ export async function runDailyComment(expIdArg?: string): Promise<{ sent: number
     } else {
       await updateOne('intervention_logs', { id: log.id }, { status: 'failed', error: r.err });
       failed++;
-      console.log(`    ❌ 全部 ${commentAccounts.length} 个账号均失败(${r.err})`);
+      console.log(`    ❌ 本帖子不可评论 / 连续3账号同错(${r.err})`);
 
       // 致命错误立即中止：retcode:-100 = cookie 过期（系统性问题，再试无意义）
       if (r.allSameErr && /\bretcode:-100\b/.test(r.err || '')) {
         console.log(`
 🚨 全账号一致报错"${r.err}"（致命：cookie 过期），立即中止评论发送`);
         aborted = true;
-        notifySystemAlert('微博', '评论发送全部账号Cookie过期', `全部 ${commentAccounts.length} 个账号均返回 ${r.err}，已中止发送并保持实验 ready 状态`);
+        notifySystemAlert('微博', '评论发送全部账号Cookie过期', `连续3个账号均返回 ${r.err}（retcode:-100），已中止发送并保持实验 ready 状态`);
         break;
       }
 
