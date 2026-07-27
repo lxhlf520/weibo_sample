@@ -134,30 +134,37 @@ export function ts(): string {
 
 // ─── cookie 过期实时检测 ──────────────────────────────────
 // 作用：API 调用中检测到 cookie 过期，立即标记账号状态为 expired 并发送邮件
-// 注：updateOne / notifyCookieExpired / query 的 import 在本文件末尾（第 345 行附近）
+// 注：updateOne / notifyCookieExpired / query 的 import 在本文件末尾（第 355 行附近）
+// 
+// 两层 Set 设计：
+//   expiredCookies  → 底层检测点消重（scrapeRealtimeMids/fetchStatusRaw/sendOneComment）
+//   markedExpired   → markAccountExpired 消重（DB update + 邮件），与 expiredCookies 独立
+// isCookieExpired 检查两者，任一命中即视为过期
 
-/** 本进程生命周期内已标记过期的 cookie（消重，避免重复写库+发邮件） */
+/** 底层 API 调用中检测到的过期 cookie（消重：避免重复日志；不负责发邮件/写 DB） */
 const expiredCookies = new Set<string>();
 
-/** 标记账号 cookie 过期：更新 DB status → expired + 发送邮件 */
+/** markAccountExpired 已处理过的 cookie（消重：避免重复 DB update + 发邮件） */
+const markedExpired = new Set<string>();
+
+/** 标记账号 cookie 过期：更新 DB status → expired + 发送邮件。用 independent dedup 确保 DB 一定更新 */
 export async function markAccountExpired(acc: Account, reason: string): Promise<void> {
-  const cookieId = acc.cookie.substring(0, 80);
-  if (expiredCookies.has(cookieId)) return; // 已标记过，跳过
-  expiredCookies.add(cookieId);
+  const cookieId = acc.cookie.substring(0, 60);
+  if (markedExpired.has(cookieId)) return;
+  markedExpired.add(cookieId);
   console.log(`🚫 标记账号过期: ${acc.nickname} (${reason})`);
-  // 更新 DB
   try {
     await updateOne('accounts', { id: acc.id }, { status: 'expired', cookie_checked_at: now() });
   } catch (e) {
     console.error(`更新账号 ${acc.nickname} 状态失败:`, e);
   }
-  // 发送邮件
   notifyCookieExpired('微博', acc.nickname, `运行中检测到过期: ${reason}`);
 }
 
-/** 检查某个 cookie 是否已被本进程检测为过期 */
+/** 检查某个 cookie 是否已被本进程检测为过期（检测点 OR 已标记过期） */
 export function isCookieExpired(cookie: string): boolean {
-  return expiredCookies.has(cookie.substring(0, 60));
+  const shortId = cookie.substring(0, 60);
+  return expiredCookies.has(shortId) || markedExpired.has(shortId);
 }
 
 export async function scrapeRealtimeMids(cookie: string, keyword: string, page: number = 1): Promise<string[]> {
@@ -174,16 +181,13 @@ export async function scrapeRealtimeMids(cookie: string, keyword: string, page: 
   if (!resp.ok) return [];
   const html = await resp.text();
 
-  // cookie 过期检测：被重定向到 SSO 登录页
+  // cookie 过期检测：被重定向到 SSO 登录页（仅加 expiredCookies，邮件由 markAccountExpired 统一发）
   const isLoginPage = resp.url.includes('login.sina.com.cn');
   if (isLoginPage && page === 1) {
     const cookieId = cookie.substring(0, 60);
     if (!expiredCookies.has(cookieId)) {
       expiredCookies.add(cookieId);
       console.log(`⚠️ Cookie 过期: 请求被重定向到登录页 (keyword=${keyword})，请刷新该账号 cookie`);
-      // 异步发邮件通知（不阻塞采集）
-      const accName = `Cookie片段: ${cookieId}...`;
-      notifyCookieExpired('微博', accName, `采集时被重定向到登录页 (keyword=${keyword})`);
     }
     return [];
   }
