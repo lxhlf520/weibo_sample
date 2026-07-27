@@ -20,6 +20,8 @@ import {
   sendOneComment,
   getActiveAccounts,
   getCommentableAccounts,
+  markAccountExpired,
+  isCookieExpired,
 } from './shared';
 import { notifySystemAlert } from '../lib/email';
 
@@ -68,6 +70,10 @@ async function tryAllAccounts(
     if (r.ok) {
       return { ok: true, cid: r.cid, usedIdx: (startIdx + attempt) % accounts.length };
     }
+    // 检测 cookie 是否过期并立即标记
+    if (isCookieExpired(acc.cookie)) {
+      await markAccountExpired(acc, `评论失败: ${r.err}`);
+    }
     lastErr = r.err || 'unknown';
     if (attempt === 0) {
       firstErr = lastErr;
@@ -86,6 +92,11 @@ async function captureBaseline(experimentId: string, accounts: Account[]): Promi
   for (let i = 0; i < posts.length; i++) {
     const p = posts[i];
     const md = await fetchStatusRaw(accounts[i % accounts.length].cookie, p.mid);
+    // 检测 cookie 是否过期
+    const acc = accounts[i % accounts.length];
+    if (isCookieExpired(acc.cookie)) {
+      await markAccountExpired(acc, 't0基线采集时被重定向到登录页');
+    }
     if (md && md.ok !== 0) {
       await insert('post_snapshots', {
         experiment_id: experimentId,

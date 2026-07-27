@@ -31,6 +31,8 @@ import {
   fetchStatusRaw,
   screenStatus,
   getActiveAccounts,
+  markAccountExpired,
+  isCookieExpired,
 } from './shared';
 import { collectorLog } from '../lib/logger';
 
@@ -117,6 +119,13 @@ export async function runCollectBatch(): Promise<{ experimentId: string; qualifi
   }
   const mids = [...batchMids];
   console.log(`\n本批候选（去重历史后）: ${mids.length} 个 mid`);
+
+  // ── 检测并标记 cookie 过期的账号 ──
+  for (const acc of accounts) {
+    if (isCookieExpired(acc.cookie)) {
+      await markAccountExpired(acc, '采集搜索时被重定向到登录页');
+    }
+  }
 
   // ── 逐条筛选 → 按作者去重 upsert 到池 ──
   const cutoff = Date.now() - 12 * 3600 * 1000;

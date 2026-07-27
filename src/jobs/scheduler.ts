@@ -28,6 +28,7 @@ import { runStartupMigration } from '../lib/startup-migration';
 import { closeDb } from '../lib/db';
 import { COLLECT_HOURS, ts } from './shared';
 import { schedulerLog } from '../lib/logger';
+import { notifySystemAlert } from '../lib/email';
 
 const CREATE_HOUR = 14; // 14:00 提前 2h 创建当天实验
 const COOKIE_TEST_HOUR = 15; // 15:00 提前 1h 检测账号 cookie 有效性
@@ -208,13 +209,23 @@ function main(): void {
 
 async function shutdown(): Promise<void> {
   schedulerLog.log('收到退出信号，关闭连接...');
-  try {
-    await closeDb();
-  } catch {
-    /* ignore */
-  }
+  try { await closeDb(); } catch { /* ignore */ }
   process.exit(0);
 }
+
+/** 未捕获异常的崩溃处理：发邮件告警后退出 */
+function handleFatalCrash(label: string, err: Error | unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  const stack = err instanceof Error ? (err.stack || '').substring(0, 600) : '';
+  console.error(`\n💥 ${label}: ${msg}\n${stack}`);
+  try {
+    notifySystemAlert('微博', `${label}: ${msg}`, stack || msg);
+  } catch { /* 邮件发送失败也继续 */ }
+  setTimeout(() => process.exit(1), 3000); // 等 3s 给邮件发送机会
+}
+
+process.on('uncaughtException', (err) => handleFatalCrash('未捕获异常(uncaughtException)', err));
+process.on('unhandledRejection', (reason) => handleFatalCrash('未处理的Promise拒绝(unhandledRejection)', reason));
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);

@@ -132,10 +132,33 @@ export function ts(): string {
   return new Date().toLocaleString();
 }
 
-// ─── s.weibo.com/realtime 网页抓取 mid ─────────────────────
+// ─── cookie 过期实时检测 ──────────────────────────────────
+// 作用：API 调用中检测到 cookie 过期，立即标记账号状态为 expired 并发送邮件
+// 注：updateOne / notifyCookieExpired / query 的 import 在本文件末尾（第 345 行附近）
 
-/** 已告警过 cookie 过期的账号消重 */
-const warnedExpired = new Set<string>();
+/** 本进程生命周期内已标记过期的 cookie（消重，避免重复写库+发邮件） */
+const expiredCookies = new Set<string>();
+
+/** 标记账号 cookie 过期：更新 DB status → expired + 发送邮件 */
+export async function markAccountExpired(acc: Account, reason: string): Promise<void> {
+  const cookieId = acc.cookie.substring(0, 80);
+  if (expiredCookies.has(cookieId)) return; // 已标记过，跳过
+  expiredCookies.add(cookieId);
+  console.log(`🚫 标记账号过期: ${acc.nickname} (${reason})`);
+  // 更新 DB
+  try {
+    await updateOne('accounts', { id: acc.id }, { status: 'expired', cookie_checked_at: now() });
+  } catch (e) {
+    console.error(`更新账号 ${acc.nickname} 状态失败:`, e);
+  }
+  // 发送邮件
+  notifyCookieExpired('微博', acc.nickname, `运行中检测到过期: ${reason}`);
+}
+
+/** 检查某个 cookie 是否已被本进程检测为过期 */
+export function isCookieExpired(cookie: string): boolean {
+  return expiredCookies.has(cookie.substring(0, 60));
+}
 
 export async function scrapeRealtimeMids(cookie: string, keyword: string, page: number = 1): Promise<string[]> {
   const url = `https://s.weibo.com/realtime?q=${encodeURIComponent(keyword)}&page=${page}`;
@@ -155,8 +178,8 @@ export async function scrapeRealtimeMids(cookie: string, keyword: string, page: 
   const isLoginPage = resp.url.includes('login.sina.com.cn');
   if (isLoginPage && page === 1) {
     const cookieId = cookie.substring(0, 60);
-    if (!warnedExpired.has(cookieId)) {
-      warnedExpired.add(cookieId);
+    if (!expiredCookies.has(cookieId)) {
+      expiredCookies.add(cookieId);
       console.log(`⚠️ Cookie 过期: 请求被重定向到登录页 (keyword=${keyword})，请刷新该账号 cookie`);
       // 异步发邮件通知（不阻塞采集）
       const accName = `Cookie片段: ${cookieId}...`;
@@ -191,7 +214,11 @@ export async function fetchStatusRaw(cookie: string, mid: string): Promise<any |
     try {
       return JSON.parse(text);
     } catch {
-      return null; // 返回 HTML（400/风控）时视为失败
+      // 返回 HTML 而非 JSON → 可能被重定向到登录页
+      if (resp.url.includes('login.sina.com.cn') || text.includes('passport.weibo.com')) {
+        expiredCookies.add(cookie.substring(0, 60));
+      }
+      return null;
     }
   } catch {
     return null;
@@ -261,11 +288,19 @@ export async function sendOneComment(
     try {
       data = JSON.parse(text);
     } catch {
+      // JSON 解析失败 → 可能被重定向到登录页
+      if (resp.url.includes('login.sina.com.cn') || text.includes('passport.weibo.com')) {
+        expiredCookies.add(cookie.substring(0, 60));
+      }
       return { ok: false, err: text.substring(0, 100) };
     }
     if (data.ok === 1 && data.data) {
       const cid = data.data.idstr || data.data.comment?.idstr || String(data.data.id);
       return { ok: true, cid };
+    }
+    // cookie 过期特征：retcode -100 或特定错误文案
+    if (data.ok === -100 || String(data.msg || '').includes('请先登录') || String(data.msg || '').includes('login')) {
+      expiredCookies.add(cookie.substring(0, 60));
     }
     return { ok: false, err: data.msg || data.error || `retcode:${data.ok}` };
   } catch (e: any) {
@@ -320,7 +355,7 @@ export async function deleteComment(cookie: string, mid: string, cid: string): P
 
 // ─── 账号读取 ──────────────────────────────────────────────
 
-import { query } from '../lib/db';
+import { query, updateOne } from '../lib/db';
 import { notifyCookieExpired } from '../lib/email';
 
 /** 读取所有 active 账号 */
