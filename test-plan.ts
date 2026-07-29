@@ -362,7 +362,7 @@ async function phase_screening(
       if (ret) continue;
       if (vt > 0) continue;
       if (hanzi < 8) continue;
-      if (cc < 10 || cc > 500) continue;
+      if (cc < 5 || cc > 200) continue;
       if (followers >= 500_000) continue;
       if (EXCLUDE_KW.some(kw => content.toLowerCase().includes(kw.toLowerCase()))) continue;
 
@@ -881,6 +881,26 @@ async function main() {
   if (phase) {
     // 单阶段模式
     if (phase === 'pre_check') { await phase_pre_check(); }
+    else if (phase === 'screening') {
+      const { rows: accounts } = await query<Account>('weibo_accounts', { status: 'active' });
+      const { allAccounts, ok } = await phase_pre_check();
+      if (!ok) { console.log('\n❌ 预检不通过，终止'); await closeDb(); return; }
+      await phase_screening(allAccounts);
+    }
+    else if (phase === 'send_comments') {
+      const expId = process.argv.find(a => a.startsWith('--exp='))?.split('=')[1];
+      if (!expId) { console.log('❌ 需要 --exp=<experimentId>'); await closeDb(); return; }
+      const { rows: accounts } = await query<Account>('weibo_accounts', { status: 'active' });
+      const { allAccounts, ok } = await phase_pre_check();
+      if (!ok) { console.log('\n❌ 预检不通过，终止'); await closeDb(); return; }
+      const { rows: posts } = await query<any>('posts', { experiment_id: expId });
+      const spares: any[] = posts.slice(20);
+      await phase_send_comments(expId, allAccounts, spares.map((p: any) => ({
+        postId: p.post_id, postUrl: p.post_url, content: p.content, authorUid: p.author_uid,
+        authorName: p.author_name, followers: p.followers, commentsCount: p.comments_count,
+        repostsCount: p.reposts_count, likesCount: p.likes_count, publishedAt: p.published_at,
+      })));
+    }
     else if (phase === 'monitoring') {
       const expId = process.argv.find(a => a.startsWith('--exp='))?.split('=')[1];
       if (!expId) { console.log('❌ 需要 --exp=<experimentId>'); return; }

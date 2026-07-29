@@ -2,12 +2,11 @@
  * 正式实验 - 常驻调度器（Node 原生定时，零外部依赖）
  * ============================================================================
  * 实验生命周期：
- *   14:00                  getOrCreateCollectingExp  提前 2h 创建当天实验记录
- *   15:00                  runDailyCookieCheck       提前 1h 检测账号 cookie 有效性
- *   16:00 / 18:00 / 20:00  runCollectBatch            每 2 小时采一批 2000 候选追加池，
+ *   14:00                  getOrCreateCollectingExp  提前创建当天实验记录
+ *   14:00 / 16:00 / 18:00  runCollectBatch            每 2 小时采一批 2000 候选追加池，
  *                          跨批筛选累计；合格 ≥90 即停后续批次。
- *   20:00 批次采完后        finalizeExperiment        从池选 90 实验帖建实验
- *                          → runDailyComment          采 t0 基线 + 发评论
+ *   18:00 批次采完后        finalizeExperiment        从池选 90 实验帖建实验
+ *   20:00                  → runDailyComment          采 t0 基线 + 发评论
  *   每 30 分钟              runMonitorTick            扫描 running 实验补采到点快照
  *
  * 用每分钟一次的 setInterval 心跳判断整点触发（当天每个整点仅一次）。

@@ -48,14 +48,14 @@ export interface ExperimentRun {
 
 // ─── 规模参数（分批增量建池）──────────────────────────────
 // 支持环境变量覆盖（试跑用小规模），默认为正式实验规格。
-// 策略：16/18/20 三批，每批采 CANDIDATE_BATCH 条候选追加池，跨批筛选累计；
+// 策略：14/16/18 三批，每批采 CANDIDATE_BATCH 条候选追加池，跨批筛选累计；
 //       合格帖累计 ≥ TARGET_QUALIFIED 即停后续批次；从池中选 EXPERIMENT_POSTS 做实验。
 export const CANDIDATE_BATCH = Number(process.env.CANDIDATE_BATCH) || 2000; // 每批候选 mid 数
-export const MAX_BATCHES = Number(process.env.MAX_BATCHES) || 3; // 最多采集批次（16/18/20）
+export const MAX_BATCHES = Number(process.env.MAX_BATCHES) || 3; // 最多采集批次（14/16/18）
 export const TARGET_QUALIFIED = Number(process.env.TARGET_QUALIFIED) || 150; // 合格帖目标数（跨批累计）
 export const EXPERIMENT_POSTS = Number(process.env.EXPERIMENT_POSTS) || 90; // 实验帖（三等分 control/low/high）
 export const MAX_PAGES_PER_KEYWORD = Number(process.env.MAX_PAGES) || 8; // 每关键词最多翻页数
-export const COLLECT_HOURS = [16, 18, 20]; // 采集批次触发的整点（每 2 小时一批）
+export const COLLECT_HOURS = [14, 16, 18]; // 采集批次触发的整点（每 2 小时一批）
 
 // ─── 监控时间点 ────────────────────────────────────────────
 // t0 单独在评论前采集，此处为 t0 之后的定时监控点
@@ -233,7 +233,7 @@ export async function fetchStatusRaw(cookie: string, mid: string): Promise<any |
  * 对单条 statuses/show 原始数据执行硬性筛选。
  * 通过返回 ScreeningPost，不通过返回 null。
  * 规则：12h 内、原创、非官方号(verified_type<=0)、≥8汉字、
- *      评论 10-500、粉丝<50万、无黑名单关键词。
+ *      评论 5-200、粉丝<50万、无黑名单关键词。
  */
 export function screenStatus(md: any, mid: string, cutoffMs: number): ScreeningPost | null {
   if (!md || md.ok === 0) return null;
@@ -254,7 +254,7 @@ export function screenStatus(md: any, mid: string, cutoffMs: number): ScreeningP
   if (ret) return null;
   if (vt > 0) return null; // 排除所有官方认证号
   if (hanzi < 8) return null;
-  if (cc < 10 || cc > 500) return null;
+  if (cc < 5 || cc > 200) return null;
   if (followers >= 500_000) return null;
   if (EXCLUDE_KW.some((kw) => content.toLowerCase().includes(kw.toLowerCase()))) return null;
 
