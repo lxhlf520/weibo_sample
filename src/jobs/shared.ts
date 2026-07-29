@@ -55,7 +55,7 @@ export const MAX_BATCHES = Number(process.env.MAX_BATCHES) || 3; // 最多采集
 export const TARGET_QUALIFIED = Number(process.env.TARGET_QUALIFIED) || 150; // 合格帖目标数（跨批累计）
 export const EXPERIMENT_POSTS = Number(process.env.EXPERIMENT_POSTS) || 90; // 实验帖（三等分 control/low/high）
 export const MAX_PAGES_PER_KEYWORD = Number(process.env.MAX_PAGES) || 8; // 每关键词最多翻页数
-export const COLLECT_HOURS = [14, 16, 18]; // 采集批次触发的整点（每 2 小时一批）
+export const COLLECT_HOURS = [14, 16, 18, 20]; // 采集+评论批次整点；20:00 走 runCommentPipeline
 
 // ─── 监控时间点 ────────────────────────────────────────────
 // t0 单独在评论前采集，此处为 t0 之后的定时监控点
