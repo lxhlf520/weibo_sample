@@ -36,8 +36,12 @@ const CHECK_HOUR = 19;
 const CHECK_MINUTE = 30; // 19:30 评论权限检测
 const COOKIE_CHECK_HOUR = 3; // 3:00 每日 cookie 有效性巡检
 const MONITOR_INTERVAL_MIN = 30; // 每 30 分钟监控一次
-const ANALYZER_INTERVAL_MIN = 120; // 每 2 小时采集评论数据
+const ANALYZER_INTERVAL_MIN = 120; // 每 2 小时采集评论数据（仅空闲时段）
 const RETRY_HOURS = [1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23]; // 奇数小时空闲重试
+
+// 实验运行窗口 14:00-20:00：此期间不跑 analyzer，优先保证实验 pipeline 的 API 配额和资源
+const EXPERIMENT_WINDOW_START = Math.min(...COLLECT_HOURS);  // 14
+const EXPERIMENT_WINDOW_END = COMMENT_HOUR;                   // 20（含）
 
 let busy = false; // 防止长任务重叠
 const firedHours = new Map<string, Set<number>>(); // 日期 → 已触发的整点集合
@@ -156,12 +160,17 @@ async function heartbeat(): Promise<void> {
     });
   }
 
-  // 每 2 小时采集评论数据
+  // 每 2 小时采集评论数据（仅空闲时段，避开实验运行窗口 14:00-20:00）
   if (totalMin % ANALYZER_INTERVAL_MIN === 0 && totalMin !== lastAnalyzerMinute) {
-    await guarded('评论数据采集', async () => {
-      lastAnalyzerMinute = totalMin;
-      await runAnalyzer();
-    });
+    if (hour >= EXPERIMENT_WINDOW_START && hour <= EXPERIMENT_WINDOW_END) {
+      // 跳过：当前是实验运行时段，优先保证实验 pipeline 的 API 配额和资源
+      // 不消费 lastAnalyzerMinute，等下一个空闲 2h 窗口自然触发
+    } else {
+      await guarded('评论数据采集', async () => {
+        lastAnalyzerMinute = totalMin;
+        await runAnalyzer();
+      });
+    }
   }
   
   // 奇数小时空闲时重试采集失败（在整点后 30 分钟窗口内，不与其他任务重叠）
