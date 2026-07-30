@@ -135,20 +135,24 @@ async function heartbeat(): Promise<void> {
 
   // 采集/评论整点触发（当天每个整点仅一次），在整点后 MONITOR_INTERVAL_MIN 分钟窗口内
   if (minute < MONITOR_INTERVAL_MIN && COLLECT_HOURS.includes(hour)) {
-    await guarded(`${hour}点采集批次`, async () => {
-      if (!claimHour(today, hour)) return;
-      try {
-        if (hour === COMMENT_HOUR) {
-          await runCommentPipeline();
-        } else {
-          await runCollectBatch();
+    // 先检查是否已 claim，避免任务运行期间重复进入 guarded 打印跳过日志
+    const alreadyClaimed = firedHours.get(today)?.has(hour) ?? false;
+    if (!alreadyClaimed) {
+      await guarded(`${hour}点采集批次`, async () => {
+        if (!claimHour(today, hour)) return;
+        try {
+          if (hour === COMMENT_HOUR) {
+            await runCommentPipeline();
+          } else {
+            await runCollectBatch();
+          }
+        } catch (e) {
+          // 任务失败 → 回滚 claim，允许下次心跳重试
+          firedHours.get(today)?.delete(hour);
+          throw e;
         }
-      } catch (e) {
-        // 任务失败 → 回滚 claim，允许下次心跳重试
-        firedHours.get(today)?.delete(hour);
-        throw e;
-      }
-    });
+      });
+    }
   }
 
   // 每 30 分钟监控 tick
